@@ -13,6 +13,7 @@ import { ControlHints } from "./ui/ControlHints";
 import { InteractionPrompt } from "./ui/InteractionPrompt";
 import { CopyrightNotice } from "./ui/CopyrightNotice";
 import { useIsTouchDevice } from "./ui/useIsTouchDevice";
+import { VrmDropTarget } from "./vrm/VrmDropTarget";
 
 const root = ReactDOM.createRoot(document.querySelector("#root")!);
 
@@ -48,6 +49,7 @@ root.render(
     <InteractionPrompt />
     <ControlHints />
     <CopyrightNotice />
+    <VrmDropTarget />
     <Canvas
       shadows={{ type: THREE.PCFShadowMap }}
       camera={{

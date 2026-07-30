@@ -6,13 +6,16 @@ import { useButtonStore, useJoystickStore } from "../src/input";
 import { EcctrlVehicle, ShapeCastWheel, ThrustPropeller, type DroneConfigType, type EcctrlVehicleHandle } from "../src/vehicle";
 import { CurveEditorPlugin } from "../src/leva";
 import { useFrame, useThree } from "@react-three/fiber";
-import { useEffect, useRef, useCallback, useState, useMemo, useLayoutEffect, type RefObject } from "react";
+import { Suspense, useEffect, useRef, useCallback, useState, useMemo, useLayoutEffect, type RefObject } from "react";
 import { button, useControls, folder } from "leva";
 import AnimatedCharacterModel from "./AnimatedCharacterModel";
 import { BallCollider, CuboidCollider, CylinderCollider, MeshCollider } from "@react-three/rapier";
 import { CapsuleCahracterModel } from "./CapsuleCharacterModel";
 import { type GLTF } from 'three-stdlib'
 import { useControlStore } from "./store/useControlStore";
+import VrmCharacterModel from "./vrm/VrmCharacterModel";
+import VrmErrorBoundary from "./vrm/VrmErrorBoundary";
+import { useVrmStore } from "./vrm/useVrmStore";
 
 type EcctrlWrapperProps = {
     paused?: boolean;
@@ -32,6 +35,8 @@ export default function EcctrlWrapper({ paused = false, timeScale = 1 }: EcctrlW
     const activeController = useControlStore(state => state.activeController);
     const setActiveController = useControlStore(state => state.setActiveController);
     const setVehicleAccessTarget = useControlStore(state => state.setVehicleAccessTarget);
+    const setVrm = useVrmStore((state) => state.setVrm);
+    const vrmUrl = useVrmStore((state) => state.vrmUrl);
 
     /**
      * Ecctrl controller preset
@@ -300,14 +305,16 @@ export default function EcctrlWrapper({ paused = false, timeScale = 1 }: EcctrlW
         { collapsed: true }
     );
     // Ecctrl settings
-    const { groundDetection: ecctrlGroundDetection, animatedCharacter, ...EcctrlDebugSettings } = useControls(
+    const { groundDetection: ecctrlGroundDetection, characterModel, ...EcctrlDebugSettings } = useControls(
         "Ecctrl Settings",
         {
             ResetPlayer: button(() => {
                 ecctrlRef.current?.body.setTranslation({ x: ecctrlInitPosition.x, y: ecctrlInitPosition.y, z: ecctrlInitPosition.z }, true);
                 ecctrlRef.current?.body.setLinvel({ x: 0, y: 0, z: 0 }, true);
             }),
-            animatedCharacter: true,
+            characterModel: { options: { VRM: "vrm", Mannequin: "mannequin", Capsule: "capsule" }, value: "vrm" },
+            "Load sample.vrm": button(() => setVrm("/sample.vrm", "sample.vrm")),
+            "Load sample2.vrm": button(() => setVrm("/sample2.vrm", "sample2.vrm")),
             debug: true,
             enable: true,
             canSleep: true,
@@ -874,11 +881,16 @@ export default function EcctrlWrapper({ paused = false, timeScale = 1 }: EcctrlW
                 rotation={respawnRot}
                 userData={{ ecctrl: { excludeVehicleRay: true } }}
             >
-                {animatedCharacter && <EcctrlAnimationStateController ecctrl={ecctrlRef} enabled={!paused && EcctrlDebugSettings.enable} />}
-                {animatedCharacter
-                    ? <AnimatedCharacterModel paused={paused || !EcctrlDebugSettings.enable} timeScale={timeScale} />
-                    : <CapsuleCahracterModel position={[0, -0.6, 0]} />
-                }
+                {(characterModel === "vrm" || characterModel === "mannequin") && <EcctrlAnimationStateController ecctrl={ecctrlRef} enabled={!paused && EcctrlDebugSettings.enable} />}
+                {characterModel === "vrm" && (
+                    <VrmErrorBoundary key={vrmUrl}>
+                        <Suspense fallback={null}>
+                            <VrmCharacterModel paused={paused || !EcctrlDebugSettings.enable} timeScale={timeScale} />
+                        </Suspense>
+                    </VrmErrorBoundary>
+                )}
+                {characterModel === "mannequin" && <AnimatedCharacterModel paused={paused || !EcctrlDebugSettings.enable} timeScale={timeScale} />}
+                {characterModel === "capsule" && <CapsuleCahracterModel position={[0, -0.6, 0]} />}
             </Ecctrl>}
 
             {/* Ecctrl vehicle controls */}
