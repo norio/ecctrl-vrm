@@ -305,7 +305,7 @@ export default function EcctrlWrapper({ paused = false, timeScale = 1 }: EcctrlW
         { collapsed: true }
     );
     // Ecctrl settings
-    const { groundDetection: ecctrlGroundDetection, characterModel, ...EcctrlDebugSettings } = useControls(
+    const { groundDetection: ecctrlGroundDetection, characterModel, footIK, ...EcctrlDebugSettings } = useControls(
         "Ecctrl Settings",
         {
             ResetPlayer: button(() => {
@@ -313,6 +313,7 @@ export default function EcctrlWrapper({ paused = false, timeScale = 1 }: EcctrlW
                 ecctrlRef.current?.body.setLinvel({ x: 0, y: 0, z: 0 }, true);
             }),
             characterModel: { options: { VRM: "vrm", Mannequin: "mannequin", Capsule: "capsule" }, value: "vrm" },
+            footIK: true,
             "Load sample.vrm": button(() => setVrm("/sample.vrm", "sample.vrm")),
             "Load sample2.vrm": button(() => setVrm("/sample2.vrm", "sample2.vrm")),
             debug: true,
@@ -885,7 +886,7 @@ export default function EcctrlWrapper({ paused = false, timeScale = 1 }: EcctrlW
                 {characterModel === "vrm" && (
                     <VrmErrorBoundary key={vrmUrl}>
                         <Suspense fallback={null}>
-                            <VrmCharacterModel paused={paused || !EcctrlDebugSettings.enable} timeScale={timeScale} />
+                            <VrmCharacterModel paused={paused || !EcctrlDebugSettings.enable} timeScale={timeScale} ecctrl={ecctrlRef} footIKEnabled={footIK} />
                         </Suspense>
                     </VrmErrorBoundary>
                 )}

@@ -1,6 +1,8 @@
 import * as THREE from "three";
 import { useFrame, useLoader } from "@react-three/fiber";
 import { useGLTF } from "@react-three/drei";
+import { useRapier } from "@react-three/rapier";
+import { QueryFilterFlags } from "@dimforge/rapier3d-compat";
 import {
   VRMLoaderPlugin,
   VRMUtils,
@@ -10,11 +12,24 @@ import {
   GLTFLoader,
   type GLTFParser,
 } from "three/examples/jsm/loaders/GLTFLoader.js";
-import { useEffect, useMemo, useRef, useState } from "react";
+import {
+  useEffect,
+  useMemo,
+  useRef,
+  useState,
+  type RefObject,
+} from "react";
 import {
   useEcctrlAnimationStore,
   type EcctrlAnimationState,
+  type EcctrlHandle,
 } from "../../src";
+import {
+  CharacterFootIK,
+  footIKSettings,
+  type CharacterFootIKDeps,
+  type FootIKGroundHit,
+} from "./FootIK";
 import { retargetHumanoidAnimationClips } from "./VrmAnimation";
 import { isVrm0 } from "./VrmMeta";
 import { useVrmStore } from "./useVrmStore";
@@ -40,12 +55,17 @@ const readTimeScale = (value: number | { current: number }) =>
 interface VrmCharacterModelProps {
   paused?: boolean;
   timeScale?: number | { current: number };
+  ecctrl?: RefObject<EcctrlHandle | null>;
+  footIKEnabled?: boolean;
 }
 
 export default function VrmCharacterModel({
   paused = false,
   timeScale = 1,
+  ecctrl,
+  footIKEnabled = true,
 }: VrmCharacterModelProps) {
+  const { world, rapier } = useRapier();
   const vrmUrl = useVrmStore((state) => state.vrmUrl);
   const gltf = useLoader(GLTFLoader, vrmUrl, (loader) => {
     loader.register(createVrmLoaderPlugin);
@@ -67,7 +87,44 @@ export default function VrmCharacterModel({
   const prevActionNameRef = useRef(statusToActionMap.IDLE);
   const prevMixerTimeScale = useRef(-1);
   const mixerTimeScale = useRef(1);
+  const groupRef = useRef<THREE.Group>(null);
+  const footIKRef = useRef<CharacterFootIK | null>(null);
   const [canPlayNext, setCanPlayNext] = useState(true);
+  const groundRay = useMemo(
+    () =>
+      new rapier.Ray(
+        { x: 0, y: 0, z: 0 },
+        { x: 0, y: -1, z: 0 }
+      ),
+    [rapier]
+  );
+
+  const castGroundRay: CharacterFootIKDeps["castGroundRay"] = (
+    origin,
+    maxDistance,
+    out: FootIKGroundHit
+  ) => {
+    const body = ecctrl?.current?.body;
+    if (!body) return false;
+    groundRay.origin.x = origin.x;
+    groundRay.origin.y = origin.y;
+    groundRay.origin.z = origin.z;
+    const hit = world.castRayAndGetNormal(
+      groundRay,
+      maxDistance,
+      false,
+      QueryFilterFlags.EXCLUDE_SENSORS,
+      undefined,
+      undefined,
+      body,
+      undefined
+    );
+    if (!hit) return false;
+    out.pointY = groundRay.pointAt(hit.timeOfImpact).y;
+    out.normal.copy(hit.normal);
+    return true;
+  };
+  const isOnGround = () => ecctrl?.current?.isOnGround ?? false;
 
   useEffect(() => {
     vrm.scene.traverse((object) => {
@@ -88,9 +145,14 @@ export default function VrmCharacterModel({
     prevMixerTimeScale.current = -1;
     setCanPlayNext(true);
     actions.get(statusToActionMap.IDLE)?.play();
+    footIKRef.current = new CharacterFootIK(vrm, groupRef.current!, {
+      castGroundRay,
+      isOnGround,
+    });
 
     const url = vrmUrl;
     return () => {
+      footIKRef.current = null;
       if (mixerRef.current === mixer) mixerRef.current = null;
       if (actionsRef.current === actions) actionsRef.current = new Map();
       mixer.stopAllAction();
@@ -99,6 +161,10 @@ export default function VrmCharacterModel({
       useLoader.clear(GLTFLoader, url);
     };
   }, [vrm, clips, vrmUrl]);
+
+  useEffect(() => {
+    footIKSettings.enabled = footIKEnabled ?? true;
+  }, [footIKEnabled]);
 
   useEffect(() => {
     const actions = actionsRef.current;
@@ -184,10 +250,11 @@ export default function VrmCharacterModel({
     }
     mixer.update(delta);
     vrm.update(delta);
+    footIKRef.current?.update(delta);
   });
 
   return (
-    <group position={[0, -0.95, 0]}>
+    <group position={[0, -0.95, 0]} ref={groupRef}>
       <primitive object={vrm.scene} />
     </group>
   );
