@@ -143,6 +143,10 @@ export default function VrmCharacterModel({
           ? object.material
           : [object.material];
         for (const candidate of materials) {
+          // The shadow pass renders every group of a multi-material mesh
+          // through one shared override material, so mixed side values force
+          // a WebGPU pipeline rebuild per group per frame (periodic stalls).
+          candidate.shadowSide = THREE.DoubleSide;
           const material = candidate as MToonNodeMaterial;
           if (material.isMToonNodeMaterial !== true) continue;
           material.shadeColorFactor.lerp(material.color, 0.5);
