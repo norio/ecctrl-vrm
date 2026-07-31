@@ -1,4 +1,5 @@
 import { create } from "zustand";
+import { assetUrl } from "../assetUrl";
 
 export interface VrmStoreState {
   vrmUrl: string;
@@ -7,7 +8,7 @@ export interface VrmStoreState {
 }
 
 export const useVrmStore = /* @__PURE__ */ create<VrmStoreState>((set) => ({
-  vrmUrl: "/sample.vrm",
+  vrmUrl: assetUrl("sample.vrm"),
   vrmName: "sample.vrm",
   setVrm: (url, name) =>
     set((state) => {

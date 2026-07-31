@@ -5,6 +5,7 @@ import { type GLTF } from 'three-stdlib'
 import { useFrame, type ThreeElements } from '@react-three/fiber'
 import { CuboidCollider, CylinderCollider, InstancedRigidBodies, type RapierRigidBody, RigidBody, type InstancedRigidBodyProps, useRapier, BallCollider } from '@react-three/rapier'
 import { useCustomGravity } from '../../src/gravity'
+import { assetUrl } from '../assetUrl'
 
 type TimeScaleValue = number | RefObject<number>
 
@@ -43,7 +44,7 @@ function createInstanceStack({ pos, rows, rowStep, itemStep, startCount, countSt
 
 export function TestMap({ paused = false, timeScale = 1, ...props }: ThreeElements['group'] & { paused?: boolean; timeScale?: TimeScaleValue }) {
     // Map models GLTF
-    const { nodes, materials } = useGLTF('/testMap.glb') as unknown as GLTFResult
+    const { nodes, materials } = useGLTF(assetUrl('testMap.glb')) as unknown as GLTFResult
     materials.GridTexture.side = THREE.FrontSide;
 
     // Create material variants
@@ -245,7 +246,7 @@ export function TestMap({ paused = false, timeScale = 1, ...props }: ThreeElemen
     )
 }
 
-useGLTF.preload('/testMap.glb')
+useGLTF.preload(assetUrl('testMap.glb'))
 
 type GLTFResult = GLTF & {
     nodes: {

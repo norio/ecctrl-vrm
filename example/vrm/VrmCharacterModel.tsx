@@ -32,6 +32,7 @@ import {
   type CharacterFootIKDeps,
   type FootIKGroundHit,
 } from "./FootIK";
+import { assetUrl } from "../assetUrl";
 import { retargetHumanoidAnimationClips } from "./VrmAnimation";
 import { isVrm0 } from "./VrmMeta";
 import { useVrmStore } from "./useVrmStore";
@@ -79,7 +80,7 @@ export default function VrmCharacterModel({
   const vrm = gltf.userData.vrm as VRM | undefined;
   if (!vrm) throw new Error(`Loaded file does not contain a VRM: ${vrmUrl}`);
 
-  const { animations } = useGLTF("/AnimationLibrary.glb");
+  const { animations } = useGLTF(assetUrl("AnimationLibrary.glb"));
   const clips = useMemo(() => {
     if (isVrm0(vrm)) VRMUtils.rotateVRM0(vrm);
     return retargetHumanoidAnimationClips(animations, vrm, requiredClipNames);

@@ -179,6 +179,10 @@ npm run build:example
 
 The dev server uses a self-signed certificate (`@vitejs/plugin-basic-ssl`); accept the browser warning on first load. A WebGPU-capable browser is recommended.
 
+### GitHub Pages
+
+Pushes to `main` build the example (`npm run build:example -- --base=/<repo>/`) and deploy it to GitHub Pages via [deploy-pages.yml](.github/workflows/deploy-pages.yml). Public assets are resolved through [example/assetUrl.ts](example/assetUrl.ts) (`import.meta.env.BASE_URL`), so the app works from the `/<repo>/` subpath. Enable it once in the repository settings: **Settings → Pages → Source: GitHub Actions**.
+
 ## Credits and License
 
 - [Ecctrl](https://github.com/pmndrs/ecctrl) © 2023–2026 [Erdong Chen](https://github.com/ErdongChen-Andrew), MIT License. This fork keeps the same [MIT License](./LICENSE).

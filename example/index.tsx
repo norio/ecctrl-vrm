@@ -15,10 +15,11 @@ import { CopyrightNotice } from "./ui/CopyrightNotice";
 import { useIsTouchDevice } from "./ui/useIsTouchDevice";
 import { VrmDropTarget } from "./vrm/VrmDropTarget";
 
-// The climbing game lives at /climb/ as its own MPA entry. The dev/preview
-// servers' SPA fallback routes the slash-less /climb here, so bounce it.
-if (window.location.pathname.replace(/\/+$/, "") === "/climb") {
-  window.location.replace("/climb/");
+// The climbing game lives at climb/ as its own MPA entry. The dev/preview
+// servers' SPA fallback routes the slash-less climb URL here, so bounce it.
+const climbPath = `${import.meta.env.BASE_URL}climb`;
+if (window.location.pathname.replace(/\/+$/, "") === climbPath) {
+  window.location.replace(`${climbPath}/`);
 }
 
 const root = ReactDOM.createRoot(document.querySelector("#root")!);

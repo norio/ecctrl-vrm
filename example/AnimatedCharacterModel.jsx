@@ -3,6 +3,7 @@ import { useEffect, useMemo, useRef, useState } from "react";
 import { useFrame } from "@react-three/fiber";
 import { useGLTF, useAnimations } from "@react-three/drei";
 import { useEcctrlAnimationStore } from "../src";
+import { assetUrl } from "./assetUrl";
 
 const readTimeScale = (value) =>  typeof value === "number" ? value : (value?.current ?? 1);
 
@@ -15,7 +16,7 @@ export default function AnimatedCharacterModel(props) {
   const [canPlayNext, setCanPlayNext] = useState(true);
 
   // Load the GLTF model and animations
-  const { nodes, materials, animations } = useGLTF("/AnimationLibrary.glb");
+  const { nodes, materials, animations } = useGLTF(assetUrl("AnimationLibrary.glb"));
   const { ref, actions, mixer } = useAnimations(animations);
   const actionStore = useEcctrlAnimationStore((state) => state.animationState);
 
@@ -148,4 +149,4 @@ export default function AnimatedCharacterModel(props) {
   );
 }
 
-useGLTF.preload("/AnimationLibrary.glb");
+useGLTF.preload(assetUrl("AnimationLibrary.glb"));

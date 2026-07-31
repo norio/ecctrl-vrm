@@ -12,7 +12,9 @@ export default defineConfig({
   plugins: [react()],
   root: "example/",
   publicDir: "../public/",
-  base: "./",
+  // Absolute base so import.meta.env.BASE_URL resolves public assets from any
+  // page depth (climb/). GitHub Pages builds override it via --base=/<repo>/.
+  base: "/",
   server: {
     host: true,
     open: !isCodeSandbox, // Open if it's not a CodeSandbox

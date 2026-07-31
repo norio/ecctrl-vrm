@@ -12,6 +12,7 @@ import AnimatedCharacterModel from "./AnimatedCharacterModel";
 import { BallCollider, CuboidCollider, CylinderCollider, MeshCollider } from "@react-three/rapier";
 import { CapsuleCahracterModel } from "./CapsuleCharacterModel";
 import { type GLTF } from 'three-stdlib'
+import { assetUrl } from "./assetUrl";
 import { useControlStore } from "./store/useControlStore";
 import VrmCharacterModel from "./vrm/VrmCharacterModel";
 import VrmErrorBoundary from "./vrm/VrmErrorBoundary";
@@ -87,7 +88,7 @@ export default function EcctrlWrapper({ paused = false, timeScale = 1 }: EcctrlW
     /**
      * Vehicle models GLTF
      */
-    const vehicleModels = useGLTF('/vehicles.glb') as unknown as GLTFResult
+    const vehicleModels = useGLTF(assetUrl('vehicles.glb')) as unknown as GLTFResult
     vehicleModels.materials.GridTexture.side = THREE.FrontSide;
 
     /**
@@ -314,8 +315,8 @@ export default function EcctrlWrapper({ paused = false, timeScale = 1 }: EcctrlW
             }),
             characterModel: { options: { VRM: "vrm", Mannequin: "mannequin", Capsule: "capsule" }, value: "vrm" },
             footIK: true,
-            "Load sample.vrm": button(() => setVrm("/sample.vrm", "sample.vrm")),
-            "Load sample2.vrm": button(() => setVrm("/sample2.vrm", "sample2.vrm")),
+            "Load sample.vrm": button(() => setVrm(assetUrl("sample.vrm"), "sample.vrm")),
+            "Load sample2.vrm": button(() => setVrm(assetUrl("sample2.vrm"), "sample2.vrm")),
             debug: true,
             enable: true,
             canSleep: true,
@@ -1031,7 +1032,7 @@ export default function EcctrlWrapper({ paused = false, timeScale = 1 }: EcctrlW
     )
 }
 
-useGLTF.preload('/vehicles.glb')
+useGLTF.preload(assetUrl('vehicles.glb'))
 
 type GLTFResult = GLTF & {
     nodes: {
