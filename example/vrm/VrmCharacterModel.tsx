@@ -8,6 +8,8 @@ import {
   VRMUtils,
   type VRM,
 } from "@pixiv/three-vrm";
+import { MToonMaterialLoaderPlugin } from "@pixiv/three-vrm-materials-mtoon";
+import { MToonNodeMaterial } from "@pixiv/three-vrm-materials-mtoon/nodes";
 import {
   GLTFLoader,
   type GLTFParser,
@@ -47,7 +49,11 @@ const statusToActionMap: Record<EcctrlAnimationState, string> = {
 const requiredClipNames = Array.from(new Set(Object.values(statusToActionMap)));
 
 const createVrmLoaderPlugin = (parser: GLTFParser) =>
-  new VRMLoaderPlugin(parser);
+  new VRMLoaderPlugin(parser, {
+    mtoonMaterialPlugin: new MToonMaterialLoaderPlugin(parser, {
+      materialType: MToonNodeMaterial,
+    }),
+  });
 
 const readTimeScale = (value: number | { current: number }) =>
   typeof value === "number" ? value : (value?.current ?? 1);
@@ -137,9 +143,8 @@ export default function VrmCharacterModel({
           ? object.material
           : [object.material];
         for (const candidate of materials) {
-          if ((candidate as any).isMToonMaterial !== true) continue;
-          const material = candidate as any;
-          material.giEqualizationFactor = 0.8;
+          const material = candidate as MToonNodeMaterial;
+          if (material.isMToonNodeMaterial !== true) continue;
           material.shadeColorFactor.lerp(material.color, 0.5);
           material.rimLightingMixFactor = 0.6;
           material.parametricRimFresnelPowerFactor = 2.5;

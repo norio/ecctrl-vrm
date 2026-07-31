@@ -1,4 +1,4 @@
-import { KeyboardControls, StatsGl } from "@react-three/drei";
+import { KeyboardControls, Stats } from "@react-three/drei";
 import { Physics } from "@react-three/rapier";
 import { button, useControls } from "leva";
 import { useEffect, useMemo, useRef } from "react";
@@ -87,7 +87,7 @@ export default function ClimbExperience() {
 
   return (
     <>
-      {showStats && <StatsGl className="performanceStats" />}
+      {showStats && <Stats className="performanceStats" />}
       <Atmosphere />
       <Decorations spec={spec} />
       <GameEffects />

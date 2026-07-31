@@ -1,22 +1,15 @@
 import * as THREE from 'three'
+import { MeshStandardNodeMaterial } from 'three/webgpu'
 
 import { BIOMES } from '../palette'
-import { buildPlatformShaderChunks } from './platformShaderChunks'
+import { applyPlatformNodes, createPlatformNodeUniforms } from './platformNodes'
 
 export type MaterialKind = 'rock' | 'accent' | 'ice' | 'grip' | 'cloud' | 'mover' | 'spinner' | 'planet' | 'pillar' | 'checkpoint' | 'checkpointBeam' | 'goal' | 'startisle'
 
 export interface PlatformMaterialSet {
-    get(kind: MaterialKind): THREE.Material
+    get(kind: MaterialKind, variant?: 'apex'): THREE.Material
     update(dt: number, elapsed: number): void
     dispose(): void
-}
-
-interface PlatformUniforms {
-    uPmTime: { value: number }
-    uPmBase: { value: THREE.Color[] }
-    uPmAccent: { value: THREE.Color[] }
-    uPmEmissive: { value: THREE.Color[] }
-    uPmBoundaries: { value: THREE.Vector4 }
 }
 
 const MATERIAL_KINDS: MaterialKind[] = [
@@ -87,70 +80,37 @@ function materialParameters(kind: MaterialKind): THREE.MeshStandardMaterialParam
     }
 }
 
-function makeUniforms(): PlatformUniforms {
-    return {
-        uPmTime: { value: 0 },
-        uPmBase: { value: BIOMES.map((biome) => biome.palette.platformBase.clone()) },
-        uPmAccent: { value: BIOMES.map((biome) => biome.palette.platformAccent.clone()) },
-        uPmEmissive: { value: BIOMES.map((biome) => biome.palette.emissive.clone()) },
-        uPmBoundaries: {
-            value: new THREE.Vector4(
-                BIOMES[1].minY,
-                BIOMES[2].minY,
-                BIOMES[3].minY,
-                BIOMES[4].minY,
-            ),
-        },
-    }
-}
-
-function inject(source: string, anchor: string, addition: string): string {
-    if (!source.includes(anchor)) throw new Error(`Three.js shader anchor missing: ${anchor}`)
-    return source.replace(anchor, `${anchor}\n${addition}`)
-}
-
-function makeKindMaterial(kind: MaterialKind, uniforms: PlatformUniforms): THREE.MeshStandardMaterial {
-    const chunks = buildPlatformShaderChunks(kind)
-    const material = new THREE.MeshStandardMaterial(materialParameters(kind))
-    material.name = `OnlyUpPlatform-${kind}`
+function makeKindMaterial(
+    kind: MaterialKind,
+    uniforms: ReturnType<typeof createPlatformNodeUniforms>,
+    pillarApex = false,
+): MeshStandardNodeMaterial {
+    const material = new MeshStandardNodeMaterial(materialParameters(kind))
+    material.name = `OnlyUpPlatform-${kind}${pillarApex ? '-apex' : ''}`
     material.dithering = true
-    material.customProgramCacheKey = () => `platform-${kind}`
-    material.onBeforeCompile = (shader) => {
-        shader.uniforms.uPmTime = uniforms.uPmTime
-        shader.uniforms.uPmBase = uniforms.uPmBase
-        shader.uniforms.uPmAccent = uniforms.uPmAccent
-        shader.uniforms.uPmEmissive = uniforms.uPmEmissive
-        shader.uniforms.uPmBoundaries = uniforms.uPmBoundaries
-
-        shader.vertexShader = inject(shader.vertexShader, '#include <common>', chunks.vertexPars)
-        shader.vertexShader = inject(shader.vertexShader, '#include <beginnormal_vertex>', chunks.vertexNormal)
-        shader.vertexShader = inject(shader.vertexShader, '#include <begin_vertex>', chunks.vertexPosition)
-        shader.fragmentShader = inject(shader.fragmentShader, '#include <common>', chunks.fragmentPars)
-        shader.fragmentShader = inject(shader.fragmentShader, '#include <color_fragment>', chunks.albedo)
-        shader.fragmentShader = inject(shader.fragmentShader, '#include <roughnessmap_fragment>', chunks.roughness)
-        shader.fragmentShader = inject(shader.fragmentShader, '#include <normal_fragment_maps>', chunks.normalPerturb)
-        shader.fragmentShader = inject(shader.fragmentShader, '#include <emissivemap_fragment>', chunks.emissive)
-    }
+    applyPlatformNodes(material, kind, uniforms, { pillarApex })
     return material
 }
 
 export function createPlatformMaterials(): PlatformMaterialSet {
-    const uniforms = {} as Record<MaterialKind, PlatformUniforms>
-    const materials = {} as Record<MaterialKind, THREE.MeshStandardMaterial>
+    const uniforms = createPlatformNodeUniforms()
+    const materials = {} as Record<MaterialKind, MeshStandardNodeMaterial>
     for (const kind of MATERIAL_KINDS) {
-        uniforms[kind] = makeUniforms()
-        materials[kind] = makeKindMaterial(kind, uniforms[kind])
+        materials[kind] = makeKindMaterial(kind, uniforms)
     }
+    const pillarApexMaterial = makeKindMaterial('pillar', uniforms, true)
 
     return {
-        get(kind) {
+        get(kind, variant) {
+            if (kind === 'pillar' && variant === 'apex') return pillarApexMaterial
             return materials[kind]
         },
         update(_dt, elapsed) {
-            for (const kind of MATERIAL_KINDS) uniforms[kind].uPmTime.value = elapsed
+            uniforms.time.value = elapsed
         },
         dispose() {
             for (const kind of MATERIAL_KINDS) materials[kind].dispose()
+            pillarApexMaterial.dispose()
         },
     }
 }

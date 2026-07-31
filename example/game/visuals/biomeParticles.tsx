@@ -1,4 +1,37 @@
 import * as THREE from 'three'
+import { MeshBasicNodeMaterial, PointsNodeMaterial } from 'three/webgpu'
+import {
+    Discard,
+    Fn,
+    abs,
+    cameraProjectionMatrix,
+    clamp,
+    color,
+    cos,
+    float,
+    fract,
+    instancedBufferAttribute,
+    length,
+    max,
+    mix,
+    modelViewMatrix,
+    modelWorldMatrix,
+    positionGeometry,
+    positionView,
+    pow,
+    rotate,
+    // @ts-expect-error three 0.184 exports screenDPR but omits it from Three.TSL.d.ts
+    screenDPR,
+    select,
+    sin,
+    smoothstep,
+    uniform,
+    uv,
+    varying,
+    vec2,
+    vec3,
+    vec4,
+} from 'three/tsl'
 import { useEffect, useMemo, useRef } from 'react'
 import { useFrame, useThree } from '@react-three/fiber'
 
@@ -19,15 +52,32 @@ export interface ParticleConfig {
 }
 
 export interface ParticleResource {
-    points: THREE.Points
-    geometry: THREE.BufferGeometry
-    material: THREE.ShaderMaterial
+    points: THREE.Sprite
+    material: PointsNodeMaterial
+    uniforms: ParticleUniforms
 }
 
 export interface ShootingStarResource {
     mesh: THREE.Mesh
     geometry: THREE.PlaneGeometry
-    material: THREE.ShaderMaterial
+    material: MeshBasicNodeMaterial
+    uniforms: ShootingStarUniforms
+}
+
+interface FogUniforms {
+    fogColor: { value: THREE.Color }
+    fogNear: { value: number }
+    fogFar: { value: number }
+}
+
+interface ParticleUniforms extends FogUniforms {
+    time: { value: number }
+    opacity: { value: number }
+}
+
+interface ShootingStarUniforms extends FogUniforms {
+    time: { value: number }
+    opacity: { value: number }
 }
 
 export const PARTICLE_CONFIGS: ParticleConfig[] = [
@@ -39,147 +89,6 @@ export const PARTICLE_CONFIGS: ParticleConfig[] = [
 ]
 
 export const BIOME_PARTICLE_POINT_COUNT = PARTICLE_CONFIGS.reduce((sum, config) => sum + config.count, 0)
-
-const particleVertex = /* glsl */ `
-uniform float uTime;
-uniform float uOpacity;
-uniform float uMode;
-uniform vec3 uBox;
-uniform vec2 uBand;
-attribute float aSeed;
-attribute float aType;
-varying float vOpacity;
-varying float vType;
-varying float vMode;
-varying float vViewDepth;
-varying float vWindAngle;
-
-vec3 wrapBox(vec3 value) {
-    return mod(value + uBox * 0.5, uBox) - uBox * 0.5;
-}
-
-void main() {
-    vec3 local = position;
-    float size = 5.0;
-    vWindAngle = 0.0;
-    if (uOpacity < 0.002) {
-        gl_Position = vec4(2.0, 2.0, 2.0, 1.0);
-        gl_PointSize = 0.0;
-        vOpacity = 0.0;
-        vType = aType;
-        vMode = uMode;
-        vViewDepth = 0.0;
-        return;
-    }
-    if (uMode < 0.5) {
-        vec3 drift = vec3(sin(aSeed * 19.0) * 0.18, 0.42 + aSeed * 0.2, cos(aSeed * 13.0) * 0.15);
-        local = wrapBox(local + drift * uTime);
-        local.x += sin(uTime * 0.35 + aSeed * 23.0) * 0.45;
-        size = mix(3.5, 7.0, aType);
-    } else if (uMode < 1.5) {
-        vec3 drift = vec3(0.24 + aSeed * 0.15, 0.18, -0.08) * uTime;
-        local = wrapBox(local + drift);
-        local.xz += vec2(sin(uTime * 0.28 + aSeed * 17.0), cos(uTime * 0.2 + aSeed * 11.0)) * 0.8;
-        size = mix(5.0, 9.0, aType);
-    } else if (uMode < 2.5) {
-        vec3 speed = aType > 0.5 ? vec3(-1.8, 1.1, 0.7) : vec3(-5.6, -24.0, 2.4);
-        float travelScale = mix(0.35, 1.0, 1.0 - aType);
-        vec3 travel = speed * uTime * travelScale;
-        if (aType <= 0.5) {
-            float windPhase = aSeed * 6.2831853;
-            vWindAngle = sin(uTime * 0.7 + windPhase) * 0.1;
-            vec2 perpendicular = vec2(-speed.z, speed.x);
-            float integratedSway = (0.1 / 0.7) * (cos(windPhase) - cos(uTime * 0.7 + windPhase));
-            travel.xz += perpendicular * integratedSway * travelScale;
-        }
-        local = wrapBox(local + travel);
-        size = aType > 0.5 ? 7.0 : mix(12.0, 26.0, aSeed);
-    } else if (uMode < 3.5) {
-        vec3 drift = vec3(-0.09, 0.06 + aSeed * 0.12, 0.11) * uTime;
-        local = wrapBox(local + drift);
-        local += normalize(vec3(sin(aSeed * 31.0), cos(aSeed * 17.0), sin(aSeed * 7.0))) * sin(uTime * 0.18 + aSeed * 40.0) * 0.5;
-        size = mix(1.2, 3.2, aType);
-    } else {
-        vec2 direction = normalize(position.xz + vec2(0.001));
-        float cycle = fract(uTime * (0.55 + aSeed * 0.32) + aSeed);
-        local = vec3(direction.x, (aType - 0.5) * 9.0 + cycle * 2.5, direction.y) * vec3(2.4 + cycle * 9.0, 1.0, 2.4 + cycle * 9.0);
-        size = 18.0 + cycle * 12.0;
-    }
-
-    vec4 world = modelMatrix * vec4(local, 1.0);
-    float bandMask = smoothstep(uBand.x - 8.0, uBand.x + 8.0, world.y)
-        * (1.0 - smoothstep(uBand.y - 8.0, uBand.y + 8.0, world.y));
-    vec4 view = viewMatrix * world;
-    gl_Position = projectionMatrix * view;
-    gl_PointSize = clamp(size * (72.0 / max(1.0, -view.z)), 1.0, 38.0);
-    vOpacity = uOpacity * bandMask;
-    if (uMode > 1.5 && uMode < 2.5 && aType <= 0.5) {
-        vOpacity *= mix(0.35, 1.0, aSeed) * smoothstep(0.0, 6.0, -view.z);
-    }
-    vType = aType;
-    vMode = uMode;
-    vViewDepth = -view.z;
-}
-`
-
-const particleFragment = /* glsl */ `
-uniform vec3 uColor;
-uniform vec3 uFogColor;
-uniform float uFogNear;
-uniform float uFogFar;
-varying float vOpacity;
-varying float vType;
-varying float vMode;
-varying float vViewDepth;
-varying float vWindAngle;
-
-void main() {
-    vec2 centered = gl_PointCoord - 0.5;
-    float distanceToCenter;
-    if (vMode > 1.5 && vMode < 2.5 && vType < 0.5) {
-        float angle = -0.24 + vWindAngle;
-        mat2 rotation = mat2(cos(angle), -sin(angle), sin(angle), cos(angle));
-        vec2 rain = rotation * centered;
-        distanceToCenter = length(rain * vec2(7.5, 1.0));
-    } else if (vMode > 3.5) {
-        distanceToCenter = length(centered * vec2(7.0, 1.0));
-    } else if (vMode > 0.5 && vMode < 1.5 && vType > 0.58) {
-        distanceToCenter = length(centered * vec2(1.0, 2.6));
-    } else {
-        distanceToCenter = length(centered);
-    }
-    if (distanceToCenter > 0.5 || vOpacity < 0.002) discard;
-    float soft = 1.0 - smoothstep(0.16, 0.5, distanceToCenter);
-    vec3 color = uColor;
-    if (vMode > 1.5 && vMode < 2.5 && vType > 0.5) color = vec3(0.28, 0.68, 1.0) * 2.2;
-    if (vMode > 2.5 && vMode < 3.5) color *= mix(0.8, 2.2, vType);
-    float pmFogFactor = clamp((vViewDepth - uFogNear) / max(0.001, uFogFar - uFogNear), 0.0, 1.0);
-    float fogAttenuation = 1.0 - pmFogFactor;
-    gl_FragColor = vec4(
-        color * fogAttenuation,
-        soft * vOpacity * mix(0.42, 1.0, vType) * fogAttenuation
-    );
-    #include <tonemapping_fragment>
-    #include <colorspace_fragment>
-}
-`
-
-function setOriginCenteredBoundingSphere(
-    geometry: THREE.BufferGeometry,
-    positions: Float32Array,
-) {
-    let maxRadiusSquared = 0
-    for (let index = 0; index < positions.length; index += 3) {
-        const x = positions[index]
-        const y = positions[index + 1]
-        const z = positions[index + 2]
-        maxRadiusSquared = Math.max(maxRadiusSquared, x * x + y * y + z * z)
-    }
-    geometry.boundingSphere = new THREE.Sphere(
-        new THREE.Vector3(),
-        Math.sqrt(maxRadiusSquared),
-    )
-}
 
 export function makeParticleResource(seed: number, config: ParticleConfig): ParticleResource {
     const rng = createRng(seed)
@@ -205,35 +114,142 @@ export function makeParticleResource(seed: number, config: ParticleConfig): Part
             : rng.next()
     }
 
-    const geometry = new THREE.BufferGeometry()
-    geometry.setAttribute('position', new THREE.BufferAttribute(positions, 3))
-    geometry.setAttribute('aSeed', new THREE.BufferAttribute(seeds, 1))
-    geometry.setAttribute('aType', new THREE.BufferAttribute(types, 1))
-    setOriginCenteredBoundingSphere(geometry, positions)
-    const material = new THREE.ShaderMaterial({
-        name: `OnlyUpParticles-${config.mode}`,
-        uniforms: {
-            uTime: { value: 0 },
-            uOpacity: { value: 0 },
-            uMode: { value: config.modeIndex },
-            uBox: { value: config.box },
-            uBand: { value: config.band },
-            uColor: { value: config.color },
-            uFogColor: { value: new THREE.Color() },
-            uFogNear: { value: 35 },
-            uFogFar: { value: 300 },
-        },
-        vertexShader: particleVertex,
-        fragmentShader: particleFragment,
-        transparent: true,
-        depthWrite: false,
-        blending: THREE.AdditiveBlending,
-    })
-    const points = new THREE.Points(geometry, material)
+    const position = instancedBufferAttribute(new THREE.InstancedBufferAttribute(positions, 3))
+    const particleSeed = instancedBufferAttribute(new THREE.InstancedBufferAttribute(seeds, 1))
+    const particleType = instancedBufferAttribute(new THREE.InstancedBufferAttribute(types, 1))
+    const time = uniform(0)
+    const opacity = uniform(0)
+    const fogColor = uniform(new THREE.Color())
+    const fogNear = uniform(35)
+    const fogFar = uniform(300)
+    const box = vec3(config.box)
+    const band = vec2(config.band)
+    const stateNode = Fn(() => {
+        const local = vec3(position).toVar()
+        const size = float(5).toVar()
+        if (config.mode === 'meadow') {
+            const drift = vec3(
+                sin(particleSeed.mul(19)).mul(0.18),
+                particleSeed.mul(0.2).add(0.42),
+                cos(particleSeed.mul(13)).mul(0.15),
+            )
+            const wrapped = local.add(drift.mul(time)).add(box.mul(0.5)).mod(box).sub(box.mul(0.5))
+            local.assign(vec3(
+                wrapped.x.add(sin(time.mul(0.35).add(particleSeed.mul(23))).mul(0.45)),
+                wrapped.y,
+                wrapped.z,
+            ))
+            size.assign(mix(3.5, 7, particleType))
+        } else if (config.mode === 'clouds') {
+            const drift = vec3(particleSeed.mul(0.15).add(0.24), 0.18, -0.08).mul(time)
+            const wrapped = local.add(drift).add(box.mul(0.5)).mod(box).sub(box.mul(0.5))
+            local.assign(vec3(
+                wrapped.x.add(sin(time.mul(0.28).add(particleSeed.mul(17))).mul(0.8)),
+                wrapped.y,
+                wrapped.z.add(cos(time.mul(0.2).add(particleSeed.mul(11))).mul(0.8)),
+            ))
+            size.assign(mix(5, 9, particleType))
+        } else if (config.mode === 'storm') {
+            const rain = particleType.lessThanEqual(0.5)
+            const speed = select(rain, vec3(-5.6, -24, 2.4), vec3(-1.8, 1.1, 0.7))
+            const travelScale = mix(0.35, 1, particleType.oneMinus())
+            const travel = speed.mul(time).mul(travelScale)
+            const windPhase = particleSeed.mul(Math.PI * 2)
+            const integratedSway = cos(windPhase).sub(cos(time.mul(0.7).add(windPhase)))
+                .mul(0.1 / 0.7).mul(travelScale)
+            const rainTravel = travel.add(vec3(
+                speed.z.negate().mul(integratedSway),
+                0,
+                speed.x.mul(integratedSway),
+            ))
+            const wrapped = local.add(select(rain, rainTravel, travel))
+                .add(box.mul(0.5)).mod(box).sub(box.mul(0.5))
+            local.assign(wrapped)
+            size.assign(select(rain, mix(12, 26, particleSeed), 7))
+        } else if (config.mode === 'cosmos') {
+            const drift = vec3(-0.09, particleSeed.mul(0.12).add(0.06), 0.11).mul(time)
+            const wrapped = local.add(drift).add(box.mul(0.5)).mod(box).sub(box.mul(0.5))
+            const direction = vec3(
+                sin(particleSeed.mul(31)),
+                cos(particleSeed.mul(17)),
+                sin(particleSeed.mul(7)),
+            ).normalize()
+            local.assign(wrapped.add(direction.mul(
+                sin(time.mul(0.18).add(particleSeed.mul(40))).mul(0.5),
+            )))
+            size.assign(mix(1.2, 3.2, particleType))
+        } else {
+            const direction = position.xz.add(vec2(0.001)).normalize()
+            const cycle = fract(time.mul(particleSeed.mul(0.32).add(0.55)).add(particleSeed))
+            const radius = cycle.mul(9).add(2.4)
+            local.assign(vec3(
+                direction.x.mul(radius),
+                particleType.sub(0.5).mul(9).add(cycle.mul(2.5)),
+                direction.y.mul(radius),
+            ))
+            size.assign(cycle.mul(12).add(18))
+        }
+        return vec4(local, size)
+    })()
+    const local = stateNode.xyz
+    const size = stateNode.w
+    const material = new PointsNodeMaterial()
+    material.name = `OnlyUpParticles-${config.mode}`
+    material.transparent = true
+    material.depthWrite = false
+    material.blending = THREE.AdditiveBlending
+    material.fog = false
+    material.sizeAttenuation = false
+    material.alphaToCoverage = false
+    material.positionNode = local
+    const viewDepth = varying(positionView.z.negate())
+    const pixelSize = clamp(size.mul(72).div(max(1, viewDepth)), 1, 38).div(screenDPR)
+    material.sizeNode = vec2(select(opacity.lessThan(0.002), 0, pixelSize))
+    const worldY = modelWorldMatrix.mul(vec4(local, 1)).y
+    const bandMask = smoothstep(band.x.sub(8), band.x.add(8), worldY)
+        .mul(smoothstep(band.y.sub(8), band.y.add(8), worldY).oneMinus())
+    const windAngle = varying(sin(time.mul(0.7).add(particleSeed.mul(Math.PI * 2))).mul(0.1))
+    const baseOpacity = opacity.mul(bandMask)
+    const rainFade = mix(0.35, 1, particleSeed).mul(smoothstep(0, 6, viewDepth))
+    const particleOpacity = config.mode === 'storm'
+        ? baseOpacity.mul(select(particleType.lessThanEqual(0.5), rainFade, 1))
+        : baseOpacity
+    const type = varying(particleType)
+    const alpha = varying(particleOpacity)
+    const centered = positionGeometry.xy
+    const baseDistance = length(centered)
+    const rain = rotate(centered, windAngle.sub(0.24).negate())
+    const distanceToCenter = config.mode === 'storm'
+        ? select(type.lessThan(0.5), length(rain.mul(vec2(7.5, 1))), baseDistance)
+        : config.mode === 'fall'
+            ? length(centered.mul(vec2(7, 1)))
+            : config.mode === 'clouds'
+                ? select(type.greaterThan(0.58), length(centered.mul(vec2(1, 2.6))), baseDistance)
+                : baseDistance
+    const soft = smoothstep(0.16, 0.5, distanceToCenter).oneMinus()
+    const fogAttenuation = clamp(
+        viewDepth.sub(fogNear).div(max(0.001, fogFar.sub(fogNear))),
+        0,
+        1,
+    ).oneMinus()
+    const baseColor = color(config.color)
+    const particleColor = config.mode === 'storm'
+        ? select(type.greaterThan(0.5), vec3(0.28, 0.68, 1).mul(2.2), baseColor)
+        : config.mode === 'cosmos'
+            ? baseColor.mul(mix(0.8, 2.2, type))
+            : baseColor
+    const finalAlpha = soft.mul(alpha).mul(mix(0.42, 1, type)).mul(fogAttenuation)
+    material.colorNode = Fn(() => {
+        Discard(distanceToCenter.greaterThan(0.5).or(alpha.lessThan(0.002)))
+        return particleColor.mul(fogAttenuation)
+    })()
+    material.opacityNode = finalAlpha
+    const points = new THREE.Sprite(material as unknown as THREE.SpriteMaterial)
+    points.count = config.count
     points.name = material.name
     points.frustumCulled = false
     points.renderOrder = 5
-    return { points, geometry, material }
+    return { points, material, uniforms: { time, opacity, fogColor, fogNear, fogFar } }
 }
 
 function bandOpacity(y: number, band: THREE.Vector2): number {
@@ -241,11 +257,11 @@ function bandOpacity(y: number, band: THREE.Vector2): number {
     return 1 - THREE.MathUtils.smoothstep(distance, 12, 48)
 }
 
-function syncLinearFog(material: THREE.ShaderMaterial, scene: THREE.Scene) {
+function syncLinearFog(uniforms: FogUniforms, scene: THREE.Scene) {
     if (!(scene.fog instanceof THREE.Fog)) return
-    material.uniforms.uFogColor.value.copy(scene.fog.color)
-    material.uniforms.uFogNear.value = scene.fog.near
-    material.uniforms.uFogFar.value = scene.fog.far
+    uniforms.fogColor.value.copy(scene.fog.color)
+    uniforms.fogNear.value = scene.fog.near
+    uniforms.fogFar.value = scene.fog.far
 }
 
 function ParticleField({ seed, config }: { seed: number; config: ParticleConfig }): React.ReactNode {
@@ -254,105 +270,84 @@ function ParticleField({ seed, config }: { seed: number; config: ParticleConfig 
     const fallOpacity = useRef(0)
 
     useEffect(() => () => {
-        resource.geometry.dispose()
         resource.material.dispose()
     }, [resource])
 
     useFrame((state, delta) => {
-        const uniforms = resource.material.uniforms
-        syncLinearFog(resource.material, scene)
-        uniforms.uTime.value = state.clock.elapsedTime
+        const uniforms = resource.uniforms
+        syncLinearFog(uniforms, scene)
+        uniforms.time.value = state.clock.elapsedTime
         resource.points.position.copy(livePlayer.pos)
         if (config.mode === 'fall') {
             const target = THREE.MathUtils.smoothstep(-livePlayer.velY, 14, 32)
             fallOpacity.current = THREE.MathUtils.damp(fallOpacity.current, target, 9, delta)
-            uniforms.uOpacity.value = fallOpacity.current
+            uniforms.opacity.value = fallOpacity.current
         } else {
-            uniforms.uOpacity.value = bandOpacity(livePlayer.pos.y, config.band)
+            uniforms.opacity.value = bandOpacity(livePlayer.pos.y, config.band)
         }
     })
 
     return <primitive object={resource.points} />
 }
 
-const shootingVertex = /* glsl */ `
-uniform float uTime;
-uniform float uOffset;
-uniform float uPeriod;
-uniform float uOpacity;
-varying vec2 vUv;
-varying float vAlpha;
-varying float vViewDepth;
-
-void main() {
-    float phase = mod(uTime + uOffset, uPeriod) / uPeriod;
-    float alpha = smoothstep(0.0, 0.012, phase) * (1.0 - smoothstep(0.13, 0.18, phase)) * uOpacity;
-    vUv = uv;
-    vAlpha = alpha;
-    vViewDepth = 0.0;
-    if (alpha < 0.002) {
-        gl_Position = vec4(2.0, 2.0, 2.0, 1.0);
-        return;
-    }
-    float travel = clamp(phase / 0.18, 0.0, 1.0);
-    vec3 center = vec3(mix(-34.0, 34.0, travel), mix(18.0, -9.0, travel), -16.0);
-    vec4 viewCenter = modelViewMatrix * vec4(center, 1.0);
-    vec2 direction = normalize(vec2(1.0, -0.38));
-    vec2 perpendicular = vec2(-direction.y, direction.x);
-    viewCenter.xy += direction * position.x * 15.0 + perpendicular * position.y * 0.18;
-    vViewDepth = -viewCenter.z;
-    gl_Position = projectionMatrix * viewCenter;
-}
-`
-
-const shootingFragment = /* glsl */ `
-uniform vec3 uFogColor;
-uniform float uFogNear;
-uniform float uFogFar;
-varying vec2 vUv;
-varying float vAlpha;
-varying float vViewDepth;
-void main() {
-    float tail = pow(vUv.x, 2.1);
-    float core = 1.0 - smoothstep(0.0, 0.5, abs(vUv.y - 0.5) * 2.0);
-    float pmFogFactor = clamp((vViewDepth - uFogNear) / max(0.001, uFogFar - uFogNear), 0.0, 1.0);
-    float fogAttenuation = 1.0 - pmFogFactor;
-    gl_FragColor = vec4(
-        mix(vec3(0.28, 0.42, 1.0), vec3(1.0), tail) * fogAttenuation,
-        vAlpha * tail * core * fogAttenuation
-    );
-    #include <tonemapping_fragment>
-    #include <colorspace_fragment>
-}
-`
-
 export function makeShootingStarResource(seed: number): ShootingStarResource {
     const rng = createRng(seed)
     for (let index = 0; index < 401; index += 1) rng.next()
     const geometry = new THREE.PlaneGeometry(1, 1, 1, 1)
-    const material = new THREE.ShaderMaterial({
-        name: 'OnlyUpShootingStar',
-        uniforms: {
-            uTime: { value: 0 },
-            uOffset: { value: rng.range(0, 9) },
-            uPeriod: { value: rng.range(5.5, 9) },
-            uOpacity: { value: 0 },
-            uFogColor: { value: new THREE.Color() },
-            uFogNear: { value: 35 },
-            uFogFar: { value: 300 },
-        },
-        vertexShader: shootingVertex,
-        fragmentShader: shootingFragment,
-        transparent: true,
-        depthWrite: false,
-        blending: THREE.AdditiveBlending,
-        side: THREE.DoubleSide,
-        forceSinglePass: true,
-    })
+    const time = uniform(0)
+    const offset = uniform(rng.range(0, 9))
+    const period = uniform(rng.range(5.5, 9))
+    const opacity = uniform(0)
+    const fogColor = uniform(new THREE.Color())
+    const fogNear = uniform(35)
+    const fogFar = uniform(300)
+    const phase = time.add(offset).mod(period).div(period)
+    const alpha = smoothstep(0, 0.012, phase)
+        .mul(smoothstep(0.13, 0.18, phase).oneMinus())
+        .mul(opacity)
+    const travel = clamp(phase.div(0.18), 0, 1)
+    const center = vec3(mix(-34, 34, travel), mix(18, -9, travel), -16)
+    const viewCenter = modelViewMatrix.mul(vec4(center, 1))
+    const direction = vec2(1, -0.38).normalize()
+    const perpendicular = vec2(direction.y.negate(), direction.x)
+    const displacedView = vec4(
+        viewCenter.xy
+            .add(direction.mul(positionGeometry.x).mul(15))
+            .add(perpendicular.mul(positionGeometry.y).mul(0.18)),
+        viewCenter.z,
+        viewCenter.w,
+    )
+    const viewDepth = varying(viewCenter.z.negate())
+    const starUv = uv()
+    const tail = pow(starUv.x, 2.1)
+    const core = smoothstep(0, 0.5, abs(starUv.y.sub(0.5)).mul(2)).oneMinus()
+    const fogAttenuation = clamp(
+        viewDepth.sub(fogNear).div(max(0.001, fogFar.sub(fogNear))),
+        0,
+        1,
+    ).oneMinus()
+    const material = new MeshBasicNodeMaterial()
+    material.name = 'OnlyUpShootingStar'
+    material.transparent = true
+    material.depthWrite = false
+    material.blending = THREE.AdditiveBlending
+    material.side = THREE.DoubleSide
+    material.forceSinglePass = true
+    material.fog = false
+    material.vertexNode = select(
+        alpha.lessThan(0.002),
+        vec4(2, 2, 2, 1),
+        cameraProjectionMatrix.mul(displacedView),
+    )
+    material.colorNode = Fn(() => {
+        Discard(alpha.lessThan(0.002))
+        return mix(vec3(0.28, 0.42, 1), vec3(1), tail).mul(fogAttenuation)
+    })()
+    material.opacityNode = alpha.mul(tail).mul(core).mul(fogAttenuation)
     const mesh = new THREE.Mesh(geometry, material)
     mesh.frustumCulled = false
     mesh.renderOrder = 6
-    return { mesh, geometry, material }
+    return { mesh, geometry, material, uniforms: { time, opacity, fogColor, fogNear, fogFar } }
 }
 
 function ShootingStar({ seed }: { seed: number }): React.ReactNode {
@@ -365,10 +360,10 @@ function ShootingStar({ seed }: { seed: number }): React.ReactNode {
     }, [resource])
 
     useFrame((state) => {
-        syncLinearFog(resource.material, scene)
+        syncLinearFog(resource.uniforms, scene)
         resource.mesh.position.copy(livePlayer.pos)
-        resource.material.uniforms.uTime.value = state.clock.elapsedTime
-        resource.material.uniforms.uOpacity.value = bandOpacity(livePlayer.pos.y, PARTICLE_CONFIGS[3].band)
+        resource.uniforms.time.value = state.clock.elapsedTime
+        resource.uniforms.opacity.value = bandOpacity(livePlayer.pos.y, PARTICLE_CONFIGS[3].band)
     })
 
     return <primitive object={resource.mesh} />

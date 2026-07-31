@@ -1,4 +1,28 @@
 import * as THREE from 'three'
+import { PointsNodeMaterial } from 'three/webgpu'
+import {
+    Discard,
+    Fn,
+    clamp,
+    cos,
+    instancedBufferAttribute,
+    length,
+    max,
+    mix,
+    positionGeometry,
+    positionView,
+    pow,
+    // @ts-expect-error three 0.184 exports screenDPR but omits it from Three.TSL.d.ts
+    screenDPR,
+    select,
+    sin,
+    smoothstep,
+    step,
+    uniform,
+    varying,
+    vec2,
+    vec3,
+} from 'three/tsl'
 import { useEffect, useMemo, useRef } from 'react'
 import { useFrame, useThree } from '@react-three/fiber'
 
@@ -10,96 +34,16 @@ import { useGameStore } from '../useGameStore'
 export const FIREWORK_POINT_COUNT = 1200
 
 export interface FireworkResource {
-    points: THREE.Points
-    geometry: THREE.BufferGeometry
-    material: THREE.ShaderMaterial
-}
-
-const vertexShader = /* glsl */ `
-uniform float uTime;
-uniform float uTrigger;
-attribute vec3 aOrigin;
-attribute vec3 aColor;
-attribute float aKind;
-attribute float aStart;
-attribute float aSeed;
-varying vec3 vColor;
-varying float vAlpha;
-varying float vKind;
-varying float vViewDepth;
-
-void main() {
-    float sequenceAge = uTime - uTrigger;
-    float age = sequenceAge - aStart;
-    vec3 local = aOrigin;
-    float alpha = 0.0;
-    float size = 6.0;
-    if (aKind < 0.5) {
-        float t = max(age, 0.0);
-        local += position * t;
-        local.y -= 2.7 * t * t;
-        alpha = step(0.0, age) * (1.0 - smoothstep(1.35, 2.65, age));
-        alpha *= 0.6 + 0.4 * sin(age * 17.0 + aSeed * 40.0);
-        size = 5.0 + aSeed * 5.0;
-    } else if (aKind < 1.5) {
-        float t = max(age, 0.0);
-        local += position * t;
-        local.y -= 2.2 * t * t;
-        local.x += sin(t * 4.0 + aSeed * 30.0) * 0.6;
-        alpha = step(0.0, age) * (1.0 - smoothstep(2.5, 4.2, age));
-        size = 8.0;
-    } else {
-        float settled = smoothstep(4.5, 5.6, sequenceAge);
-        float loop = uTime * (0.35 + aSeed * 0.45) + aSeed * 30.0;
-        local += vec3(sin(loop), cos(loop * 1.3), sin(loop * 0.73)) * (0.25 + aSeed * 0.45);
-        alpha = settled * (0.35 + 0.65 * pow(0.5 + 0.5 * sin(loop * 4.0), 5.0));
-        size = 4.0 + aSeed * 4.0;
+    points: THREE.Sprite
+    material: PointsNodeMaterial
+    uniforms: {
+        time: { value: number }
+        trigger: { value: number }
+        fogColor: { value: THREE.Color }
+        fogNear: { value: number }
+        fogFar: { value: number }
     }
-
-    if (alpha < 0.002) {
-        gl_Position = vec4(2.0, 2.0, 2.0, 1.0);
-        gl_PointSize = 0.0;
-        vColor = aColor;
-        vAlpha = 0.0;
-        vKind = aKind;
-        vViewDepth = 0.0;
-        return;
-    }
-
-    vec4 view = modelViewMatrix * vec4(local, 1.0);
-    gl_Position = projectionMatrix * view;
-    gl_PointSize = clamp(size * (72.0 / max(1.0, -view.z)), 1.0, 20.0);
-    vColor = aColor;
-    vAlpha = alpha;
-    vKind = aKind;
-    vViewDepth = -view.z;
 }
-`
-
-const fragmentShader = /* glsl */ `
-uniform vec3 uFogColor;
-uniform float uFogNear;
-uniform float uFogFar;
-varying vec3 vColor;
-varying float vAlpha;
-varying float vKind;
-varying float vViewDepth;
-
-void main() {
-    vec2 centered = gl_PointCoord - 0.5;
-    float distanceToCenter = vKind > 0.5 && vKind < 1.5
-        ? length(centered * vec2(1.0, 2.8))
-        : length(centered);
-    if (distanceToCenter > 0.5 || vAlpha < 0.002) discard;
-    float soft = 1.0 - smoothstep(0.12, 0.5, distanceToCenter);
-    vec3 color = vKind > 0.5 && vKind < 1.5 ? vec3(1.0, 0.67, 0.16) : vColor;
-    float pmFogFactor = clamp((vViewDepth - uFogNear) / max(0.001, uFogFar - uFogNear), 0.0, 1.0);
-    float fogAttenuation = 1.0 - pmFogFactor;
-    gl_FragColor = vec4(color * 2.25 * fogAttenuation, vAlpha * soft * fogAttenuation);
-    #include <tonemapping_fragment>
-    #include <colorspace_fragment>
-}
-`
 
 function randomDirection(rng: ReturnType<typeof createRng>, speedMin: number, speedMax: number): THREE.Vector3 {
     const azimuth = rng.range(0, Math.PI * 2)
@@ -175,44 +119,91 @@ export function makeFireworkResource(spec: LevelSpec): FireworkResource {
         cursor += 1
     }
 
-    const geometry = new THREE.BufferGeometry()
-    geometry.setAttribute('position', new THREE.BufferAttribute(positions, 3))
-    geometry.setAttribute('aOrigin', new THREE.BufferAttribute(origins, 3))
-    geometry.setAttribute('aColor', new THREE.BufferAttribute(colors, 3))
-    geometry.setAttribute('aKind', new THREE.BufferAttribute(kinds, 1))
-    geometry.setAttribute('aStart', new THREE.BufferAttribute(starts, 1))
-    geometry.setAttribute('aSeed', new THREE.BufferAttribute(seeds, 1))
-    let maxRadiusSquared = 0
-    for (let index = 0; index < positions.length; index += 3) {
-        const x = positions[index]
-        const y = positions[index + 1]
-        const z = positions[index + 2]
-        maxRadiusSquared = Math.max(maxRadiusSquared, x * x + y * y + z * z)
-    }
-    geometry.boundingSphere = new THREE.Sphere(
-        new THREE.Vector3(),
-        Math.sqrt(maxRadiusSquared),
+    const velocity = instancedBufferAttribute(new THREE.InstancedBufferAttribute(positions, 3))
+    const origin = instancedBufferAttribute(new THREE.InstancedBufferAttribute(origins, 3))
+    const particleColor = instancedBufferAttribute(new THREE.InstancedBufferAttribute(colors, 3))
+    const kind = instancedBufferAttribute(new THREE.InstancedBufferAttribute(kinds, 1))
+    const start = instancedBufferAttribute(new THREE.InstancedBufferAttribute(starts, 1))
+    const particleSeed = instancedBufferAttribute(new THREE.InstancedBufferAttribute(seeds, 1))
+    const time = uniform(0)
+    const trigger = uniform(1e9)
+    const fogColor = uniform(new THREE.Color())
+    const fogNear = uniform(35)
+    const fogFar = uniform(300)
+    const sequenceAge = time.sub(trigger)
+    const age = sequenceAge.sub(start)
+    const t = max(age, 0)
+    const burstBase = origin.add(velocity.mul(t))
+    const burstLocal = vec3(burstBase.x, burstBase.y.sub(t.mul(t).mul(2.7)), burstBase.z)
+    const burstAlpha = step(0, age)
+        .mul(smoothstep(1.35, 2.65, age).oneMinus())
+        .mul(sin(age.mul(17).add(particleSeed.mul(40))).mul(0.4).add(0.6))
+    const confettiBase = origin.add(velocity.mul(t))
+    const confettiLocal = vec3(
+        confettiBase.x.add(sin(t.mul(4).add(particleSeed.mul(30))).mul(0.6)),
+        confettiBase.y.sub(t.mul(t).mul(2.2)),
+        confettiBase.z,
     )
-    const material = new THREE.ShaderMaterial({
-        name: 'OnlyUpSummitFireworks',
-        uniforms: {
-            uTime: { value: 0 },
-            uTrigger: { value: 1e9 },
-            uFogColor: { value: new THREE.Color() },
-            uFogNear: { value: 35 },
-            uFogFar: { value: 300 },
-        },
-        vertexShader,
-        fragmentShader,
-        transparent: true,
-        depthWrite: false,
-        blending: THREE.AdditiveBlending,
-    })
-    const points = new THREE.Points(geometry, material)
+    const confettiAlpha = step(0, age).mul(smoothstep(2.5, 4.2, age).oneMinus())
+    const loop = time.mul(particleSeed.mul(0.45).add(0.35)).add(particleSeed.mul(30))
+    const ambientLocal = origin.add(vec3(
+        sin(loop),
+        cos(loop.mul(1.3)),
+        sin(loop.mul(0.73)),
+    ).mul(particleSeed.mul(0.45).add(0.25)))
+    const ambientAlpha = smoothstep(4.5, 5.6, sequenceAge).mul(
+        pow(sin(loop.mul(4)).mul(0.5).add(0.5), 5).mul(0.65).add(0.35),
+    )
+    const isBurst = kind.lessThan(0.5)
+    const isConfetti = kind.lessThan(1.5)
+    const local = select(isBurst, burstLocal, select(isConfetti, confettiLocal, ambientLocal))
+    const alpha = select(isBurst, burstAlpha, select(isConfetti, confettiAlpha, ambientAlpha))
+    const size = select(
+        isBurst,
+        particleSeed.mul(5).add(5),
+        select(isConfetti, 8, particleSeed.mul(4).add(4)),
+    )
+    const material = new PointsNodeMaterial()
+    material.name = 'OnlyUpSummitFireworks'
+    material.transparent = true
+    material.depthWrite = false
+    material.blending = THREE.AdditiveBlending
+    material.fog = false
+    material.sizeAttenuation = false
+    material.alphaToCoverage = false
+    material.positionNode = local
+    const viewDepth = varying(positionView.z.negate())
+    const pixelSize = clamp(size.mul(72).div(max(1, viewDepth)), 1, 20).div(screenDPR)
+    material.sizeNode = vec2(select(alpha.lessThan(0.002), 0, pixelSize))
+    const fragmentKind = varying(kind)
+    const fragmentAlpha = varying(alpha)
+    const fragmentColor = varying(particleColor)
+    const confetti = fragmentKind.greaterThan(0.5).and(fragmentKind.lessThan(1.5))
+    const centered = positionGeometry.xy
+    const distanceToCenter = select(
+        confetti,
+        length(centered.mul(vec2(1, 2.8))),
+        length(centered),
+    )
+    const soft = smoothstep(0.12, 0.5, distanceToCenter).oneMinus()
+    const fogAttenuation = clamp(
+        viewDepth.sub(fogNear).div(max(0.001, fogFar.sub(fogNear))),
+        0,
+        1,
+    ).oneMinus()
+    const finalColor = select(confetti, vec3(1, 0.67, 0.16), fragmentColor)
+        .mul(2.25).mul(fogAttenuation)
+    material.colorNode = Fn(() => {
+        Discard(distanceToCenter.greaterThan(0.5).or(fragmentAlpha.lessThan(0.002)))
+        return finalColor
+    })()
+    material.opacityNode = fragmentAlpha.mul(soft).mul(fogAttenuation)
+    const points = new THREE.Sprite(material as unknown as THREE.SpriteMaterial)
+    points.count = FIREWORK_POINT_COUNT
     points.position.set(...spec.goal.pos)
     points.frustumCulled = false
     points.renderOrder = 8
-    return { points, geometry, material }
+    return { points, material, uniforms: { time, trigger, fogColor, fogNear, fogFar } }
 }
 
 export function SummitFireworks({ spec }: { spec: LevelSpec }): React.ReactNode {
@@ -222,7 +213,6 @@ export function SummitFireworks({ spec }: { spec: LevelSpec }): React.ReactNode 
     const armed = useRef(previousStatus.current !== 'summit')
 
     useEffect(() => () => {
-        resource.geometry.dispose()
         resource.material.dispose()
     }, [resource])
 
@@ -230,17 +220,17 @@ export function SummitFireworks({ spec }: { spec: LevelSpec }): React.ReactNode 
         const elapsed = state.clock.elapsedTime
         const status = useGameStore.getState().status
         if (scene.fog instanceof THREE.Fog) {
-            resource.material.uniforms.uFogColor.value.copy(scene.fog.color)
-            resource.material.uniforms.uFogNear.value = scene.fog.near
-            resource.material.uniforms.uFogFar.value = scene.fog.far
+            resource.uniforms.fogColor.value.copy(scene.fog.color)
+            resource.uniforms.fogNear.value = scene.fog.near
+            resource.uniforms.fogFar.value = scene.fog.far
         }
-        resource.material.uniforms.uTime.value = elapsed
+        resource.uniforms.time.value = elapsed
         if (status !== 'summit') {
             armed.current = true
-            resource.material.uniforms.uTrigger.value = 1e9
+            resource.uniforms.trigger.value = 1e9
         } else if (previousStatus.current === 'playing' && armed.current) {
             armed.current = false
-            resource.material.uniforms.uTrigger.value = elapsed
+            resource.uniforms.trigger.value = elapsed
         }
         previousStatus.current = status
     })

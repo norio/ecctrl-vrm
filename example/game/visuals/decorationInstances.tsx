@@ -1,4 +1,33 @@
 import * as THREE from 'three'
+import { MeshBasicNodeMaterial, type Node } from 'three/webgpu'
+import {
+    Discard,
+    Fn,
+    abs,
+    buffer,
+    cameraViewMatrix,
+    clamp,
+    cos,
+    dot,
+    instancedBufferAttribute,
+    instanceIndex,
+    max,
+    mix,
+    modelNormalMatrix,
+    normalGeometry,
+    positionGeometry,
+    positionView,
+    pow,
+    rotate,
+    sin,
+    smoothstep,
+    transformNormal,
+    uniform,
+    varying,
+    vec2,
+    vec3,
+    vec4,
+} from 'three/tsl'
 import { useEffect, useMemo } from 'react'
 import { useFrame, useThree } from '@react-three/fiber'
 
@@ -23,112 +52,15 @@ interface DecorationData {
 
 export interface InstancedSystem {
     mesh: THREE.InstancedMesh
-    material: THREE.ShaderMaterial
+    material: MeshBasicNodeMaterial
     geometry: THREE.BufferGeometry
-}
-
-const vertexShader = /* glsl */ `
-uniform float uTime;
-uniform float uStyle;
-attribute float aPhase;
-attribute vec3 aColor;
-attribute float aSpecial;
-varying vec3 vColor;
-varying vec3 vViewNormal;
-varying vec3 vPatternPos;
-varying float vPulse;
-varying float vSpecial;
-varying float vViewDepth;
-
-mat2 rotate2d(float angle) {
-    float c = cos(angle);
-    float s = sin(angle);
-    return mat2(c, -s, s, c);
-}
-
-void main() {
-    vec3 local = position;
-    vec3 localNormal = normal;
-    float t = uTime + aPhase;
-    vec3 drift = vec3(0.0);
-    if (uStyle < 0.5) {
-        local.xz = rotate2d(t * 0.55) * local.xz;
-        localNormal.xz = rotate2d(t * 0.55) * localNormal.xz;
-        drift.y = sin(t * 1.4) * 0.16;
-    } else if (uStyle < 1.5) {
-        local.xy = rotate2d(t * 0.17) * local.xy;
-        local.yz = rotate2d(t * 0.11) * local.yz;
-        localNormal.xy = rotate2d(t * 0.17) * localNormal.xy;
-        localNormal.yz = rotate2d(t * 0.11) * localNormal.yz;
-        drift = vec3(sin(uTime * 0.18), cos(uTime * 0.13), sin(uTime * 0.11)) * 0.36;
-        drift += vec3(sin(t * 0.11), cos(t * 0.09), sin(t * 0.07)) * 0.1;
-    } else if (uStyle < 2.5) {
-        drift.x = sin(t * 0.72) * 0.22;
-        drift.y = cos(t * 0.93) * 0.12;
-    } else {
-        local.xz = rotate2d(t * 0.22) * local.xz;
-        localNormal.xz = rotate2d(t * 0.22) * localNormal.xz;
+    uniforms: {
+        time: { value: number }
+        fogColor: { value: THREE.Color }
+        fogNear: { value: number }
+        fogFar: { value: number }
     }
-
-    vec4 world = instanceMatrix * vec4(local, 1.0);
-    world.xyz += drift;
-    vec4 view = viewMatrix * world;
-    mat3 instanceNormalMatrix = mat3(instanceMatrix);
-    localNormal /= vec3(
-        dot(instanceNormalMatrix[0], instanceNormalMatrix[0]),
-        dot(instanceNormalMatrix[1], instanceNormalMatrix[1]),
-        dot(instanceNormalMatrix[2], instanceNormalMatrix[2])
-    );
-    vViewNormal = normalize(normalMatrix * instanceNormalMatrix * localNormal);
-    vColor = aColor;
-    vPatternPos = local;
-    vPulse = 0.72 + 0.28 * sin(t * 1.9);
-    vSpecial = aSpecial;
-    vViewDepth = -view.z;
-    gl_Position = projectionMatrix * view;
 }
-`
-
-const fragmentShader = /* glsl */ `
-uniform float uStyle;
-uniform vec3 uFogColor;
-uniform float uFogNear;
-uniform float uFogFar;
-varying vec3 vColor;
-varying vec3 vViewNormal;
-varying vec3 vPatternPos;
-varying float vPulse;
-varying float vSpecial;
-varying float vViewDepth;
-
-void main() {
-    float facing = abs(vViewNormal.z);
-    float rim = pow(clamp(1.0 - facing, 0.0, 1.0), 2.2);
-    float faceted = 0.38 + 0.62 * max(dot(normalize(vViewNormal), normalize(vec3(0.35, 0.7, 0.55))), 0.0);
-    vec3 color = vColor * (faceted + rim * 2.1) * vPulse;
-    float crackWave = abs(sin(vPatternPos.x * 17.0 + sin(vPatternPos.y * 21.0) + vPatternPos.z * 13.0));
-    float cracks = smoothstep(0.965, 0.995, crackWave) * vSpecial;
-    color += vColor * cracks * 1.5;
-    float alpha = 1.0;
-    if (uStyle > 1.5) {
-        color *= uStyle > 2.5 ? 1.7 : 1.5;
-        alpha = uStyle > 2.5 ? 0.72 : 0.88;
-    }
-    alpha *= 1.0 - smoothstep(80.0, 160.0, vViewDepth);
-    float pmFogFactor = clamp((vViewDepth - uFogNear) / max(0.001, uFogFar - uFogNear), 0.0, 1.0);
-    if (uStyle > 1.5) {
-        float fogAttenuation = 1.0 - pmFogFactor;
-        color *= fogAttenuation;
-        alpha *= fogAttenuation;
-    } else {
-        color = mix(color, uFogColor, pmFogFactor);
-    }
-    if (alpha < 0.002) discard;
-    gl_FragColor = vec4(color, alpha);
-    #include <tonemapping_fragment>
-    #include <colorspace_fragment>
-}
-`
 
 function biomeColor(id: BiomeId): THREE.Color {
     return BIOMES.find((biome) => biome.id === id)?.palette.emissive.clone() ?? new THREE.Color('#ffffff')
@@ -272,30 +204,116 @@ function makeSystem(records: InstanceRecord[], style: number, vertexScales: numb
         record.color.toArray(colors, index * 3)
         specials[index] = record.special
     })
-    geometry.setAttribute('aPhase', new THREE.InstancedBufferAttribute(phases, 1))
-    geometry.setAttribute('aColor', new THREE.InstancedBufferAttribute(colors, 3))
-    geometry.setAttribute('aSpecial', new THREE.InstancedBufferAttribute(specials, 1))
-    const material = new THREE.ShaderMaterial({
-        name: `OnlyUpDecoration-${style}`,
-        uniforms: {
-            uTime: { value: 0 },
-            uStyle: { value: style },
-            uFogColor: { value: new THREE.Color() },
-            uFogNear: { value: 35 },
-            uFogFar: { value: 300 },
-        },
-        vertexShader,
-        fragmentShader,
-        transparent: true,
-        blending: style >= 2 ? THREE.AdditiveBlending : THREE.NormalBlending,
-        depthWrite: style < 2,
-    })
+    const phaseAttribute = new THREE.InstancedBufferAttribute(phases, 1)
+    const colorAttribute = new THREE.InstancedBufferAttribute(colors, 3)
+    const specialAttribute = new THREE.InstancedBufferAttribute(specials, 1)
+    geometry.setAttribute('aPhase', phaseAttribute)
+    geometry.setAttribute('aColor', colorAttribute)
+    geometry.setAttribute('aSpecial', specialAttribute)
+    const material = new MeshBasicNodeMaterial()
+    material.name = `OnlyUpDecoration-${style}`
+    material.transparent = true
+    material.blending = style >= 2 ? THREE.AdditiveBlending : THREE.NormalBlending
+    material.depthWrite = style < 2
+    material.fog = false
     const mesh = new THREE.InstancedMesh(geometry, material, records.length)
     records.forEach((record, index) => mesh.setMatrixAt(index, record.matrix))
     mesh.instanceMatrix.needsUpdate = true
+
+    const time = uniform(0)
+    const fogColor = uniform(new THREE.Color())
+    const fogNear = uniform(35)
+    const fogFar = uniform(300)
+    const phase = instancedBufferAttribute(phaseAttribute)
+    const instanceColor = instancedBufferAttribute(colorAttribute)
+    const special = instancedBufferAttribute(specialAttribute)
+    const instanceMatrixNode = buffer(
+        mesh.instanceMatrix.array,
+        'mat4',
+        Math.max(records.length, 1),
+    ).element(instanceIndex)
+    const t = time.add(phase)
+    let local: Node = positionGeometry
+    let localNormal: Node = normalGeometry
+    let drift: Node = vec3(0)
+
+    if (style === 0) {
+        const angle = t.mul(-0.55)
+        const rotatedPosition = rotate(positionGeometry.xz, angle)
+        const rotatedNormal = rotate(normalGeometry.xz, angle)
+        local = vec3(rotatedPosition.x, positionGeometry.y, rotatedPosition.y)
+        localNormal = vec3(rotatedNormal.x, normalGeometry.y, rotatedNormal.y)
+        drift = vec3(0, sin(t.mul(1.4)).mul(0.16), 0)
+    } else if (style === 1) {
+        const positionXY = rotate(positionGeometry.xy, t.mul(-0.17))
+        const positionYZ = rotate(vec2(positionXY.y, positionGeometry.z), t.mul(-0.11))
+        const normalXY = rotate(normalGeometry.xy, t.mul(-0.17))
+        const normalYZ = rotate(vec2(normalXY.y, normalGeometry.z), t.mul(-0.11))
+        local = vec3(positionXY.x, positionYZ.x, positionYZ.y)
+        localNormal = vec3(normalXY.x, normalYZ.x, normalYZ.y)
+        drift = vec3(
+            sin(time.mul(0.18)),
+            cos(time.mul(0.13)),
+            sin(time.mul(0.11)),
+        ).mul(0.36).add(vec3(
+            sin(t.mul(0.11)),
+            cos(t.mul(0.09)),
+            sin(t.mul(0.07)),
+        ).mul(0.1))
+    } else if (style === 2) {
+        localNormal = normalGeometry
+        drift = vec3(sin(t.mul(0.72)).mul(0.22), cos(t.mul(0.93)).mul(0.12), 0)
+    } else {
+        const angle = t.mul(-0.22)
+        const rotatedPosition = rotate(positionGeometry.xz, angle)
+        const rotatedNormal = rotate(normalGeometry.xz, angle)
+        local = vec3(rotatedPosition.x, positionGeometry.y, rotatedPosition.y)
+        localNormal = vec3(rotatedNormal.x, normalGeometry.y, rotatedNormal.y)
+    }
+
+    const worldLocal = instanceMatrixNode.mul(vec4(local, 1)).xyz.add(drift)
+    material.positionNode = worldLocal
+    const viewNormal = varying(cameraViewMatrix.transformDirection(
+        modelNormalMatrix.mul(transformNormal(localNormal, instanceMatrixNode)),
+    ).normalize())
+    const patternPosition = varying(local)
+    const viewDepth = varying(positionView.z.negate())
+    const pulse = varying(sin(t.mul(1.9)).mul(0.28).add(0.72))
+    const vertexColor = varying(instanceColor)
+    const vertexSpecial = varying(special)
+    const facing = abs(viewNormal.z)
+    const rim = pow(clamp(facing.oneMinus(), 0, 1), 2.2)
+    const faceted = max(dot(viewNormal.normalize(), vec3(0.35, 0.7, 0.55).normalize()), 0)
+        .mul(0.62).add(0.38)
+    const crackWave = abs(sin(
+        patternPosition.x.mul(17)
+            .add(sin(patternPosition.y.mul(21)))
+            .add(patternPosition.z.mul(13)),
+    ))
+    const cracks = smoothstep(0.965, 0.995, crackWave).mul(vertexSpecial)
+    const baseColor = vertexColor.mul(faceted.add(rim.mul(2.1))).mul(pulse)
+        .add(vertexColor.mul(cracks).mul(1.5))
+    const distanceAlpha = smoothstep(80, 160, viewDepth).oneMinus()
+    const fogFactor = clamp(
+        viewDepth.sub(fogNear).div(max(0.001, fogFar.sub(fogNear))),
+        0,
+        1,
+    )
+    const fogAttenuation = fogFactor.oneMinus()
+    const shadedColor = style >= 2
+        ? baseColor.mul(style === 3 ? 1.7 : 1.5).mul(fogAttenuation)
+        : mix(baseColor, fogColor, fogFactor)
+    const alpha = style >= 2
+        ? distanceAlpha.mul(style === 3 ? 0.72 : 0.88).mul(fogAttenuation)
+        : distanceAlpha
+    material.colorNode = Fn(() => {
+        Discard(alpha.lessThan(0.002))
+        return shadedColor
+    })()
+    material.opacityNode = alpha
     mesh.frustumCulled = false
     mesh.renderOrder = style >= 2 ? 4 : 0
-    return { mesh, material, geometry }
+    return { mesh, material, geometry, uniforms: { time, fogColor, fogNear, fogFar } }
 }
 
 export function createDecorationSystems(spec: LevelSpec): InstancedSystem[] {
@@ -322,11 +340,11 @@ export function DecorationInstances({ spec }: { spec: LevelSpec }): React.ReactN
     useFrame((state) => {
         const elapsed = state.clock.elapsedTime
         for (const system of systems) {
-            system.material.uniforms.uTime.value = elapsed
+            system.uniforms.time.value = elapsed
             if (scene.fog instanceof THREE.Fog) {
-                system.material.uniforms.uFogColor.value.copy(scene.fog.color)
-                system.material.uniforms.uFogNear.value = scene.fog.near
-                system.material.uniforms.uFogFar.value = scene.fog.far
+                system.uniforms.fogColor.value.copy(scene.fog.color)
+                system.uniforms.fogNear.value = scene.fog.near
+                system.uniforms.fogFar.value = scene.fog.far
             }
         }
     })

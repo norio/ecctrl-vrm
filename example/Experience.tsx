@@ -1,4 +1,4 @@
-import { KeyboardControls, StatsGl } from "@react-three/drei";
+import { KeyboardControls, Stats } from "@react-three/drei";
 import { Physics } from "@react-three/rapier";
 import Lights from "./Lights";
 import { useControls } from "leva";
@@ -68,7 +68,7 @@ export default function Experience() {
 
   return (
     <>
-      <StatsGl className="performanceStats" />
+      <Stats className="performanceStats" />
 
       <Lights />
 

@@ -119,7 +119,7 @@ function StaticException({ platform, materials }: { platform: StaticPlatform; ma
                 castShadow
                 receiveShadow
                 scale={platform.size}
-                material={materials.get(platform.material)}
+                material={materials.get(platform.material, platform.material === 'pillar' ? 'apex' : undefined)}
             >
                 {geometry}
             </mesh>

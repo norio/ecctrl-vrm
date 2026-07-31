@@ -1,5 +1,6 @@
 import "./style.css";
 import * as THREE from "three"
+import { WebGPURenderer } from "three/webgpu";
 import ReactDOM from "react-dom/client";
 import { Canvas } from "@react-three/fiber";
 import Experience from "../example/Experience";
@@ -56,6 +57,11 @@ root.render(
     <CopyrightNotice />
     <VrmDropTarget />
     <Canvas
+      gl={async (props) => {
+        const renderer = new WebGPURenderer(props as any);
+        await renderer.init();
+        return renderer;
+      }}
       shadows={{ type: THREE.PCFShadowMap }}
       camera={{
         fov: 75,

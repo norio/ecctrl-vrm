@@ -7,14 +7,7 @@ import { blendedPalette, type BiomePalette } from '../palette'
 import { createRng } from '../prng'
 import { livePlayer } from '../useGameStore'
 import { evaluateAltitude, sanitizePosition, sunDirectionAt, type AltitudeAtmosphere } from './atmosphereMath'
-import {
-    CLOUD_FRAGMENT_SHADER,
-    CLOUD_VERTEX_SHADER,
-    CUMULUS_FRAGMENT_SHADER,
-    CUMULUS_VERTEX_SHADER,
-    SKY_FRAGMENT_SHADER,
-    SKY_VERTEX_SHADER,
-} from './atmosphereShaders'
+import { makeCloudMaterial, makeCumulusMaterial, makeSkyMaterial } from './atmosphereNodes'
 
 const CLOUD_LAYERS = [
     { y: 96, phase: 0.0, opacity: 0.72 },
@@ -41,46 +34,12 @@ const LIGHTNING_FLASH_DECAY_SECONDS = 0.25
 const LIGHTNING_FLASH_CUTOFF_START_SECONDS = 0.3
 const LIGHTNING_FLASH_DURATION_SECONDS = 0.4
 
-interface CloudMaterial extends THREE.ShaderMaterial {
-    uniforms: {
-        uColor: THREE.IUniform<THREE.Color>
-        uTime: THREE.IUniform<number>
-        uOpacity: THREE.IUniform<number>
-        uLayerY: THREE.IUniform<number>
-        uPhase: THREE.IUniform<number>
-        uSkyFlash: THREE.IUniform<number>
-        uFogColor: THREE.IUniform<THREE.Color>
-        uFogNear: THREE.IUniform<number>
-        uFogFar: THREE.IUniform<number>
-    }
-}
-
-function makeCloudMaterial(layer: (typeof CLOUD_LAYERS)[number]): CloudMaterial {
-    return new THREE.ShaderMaterial({
-        uniforms: {
-            uColor: { value: new THREE.Color() },
-            uTime: { value: 0 },
-            uOpacity: { value: 0 },
-            uLayerY: { value: layer.y },
-            uPhase: { value: layer.phase },
-            uSkyFlash: { value: 0 },
-            uFogColor: { value: new THREE.Color() },
-            uFogNear: { value: 35 },
-            uFogFar: { value: 300 },
-        },
-        vertexShader: CLOUD_VERTEX_SHADER,
-        fragmentShader: CLOUD_FRAGMENT_SHADER,
-        side: THREE.DoubleSide,
-        transparent: true,
-        depthWrite: false,
-        fog: false,
-    }) as CloudMaterial
-}
-
 function makeCumulusResources() {
     const geometry = new THREE.PlaneGeometry(1, 1)
     const phases = new Float32Array(CUMULUS_COUNT)
     const drift = new Float32Array(CUMULUS_COUNT * 2)
+    const centers = new Float32Array(CUMULUS_COUNT * 3)
+    const scales = new Float32Array(CUMULUS_COUNT * 2)
     const matrices = new Float32Array(CUMULUS_COUNT * 16)
     const dummy = new THREE.Object3D()
     const rng = createRng(0x51c0a7)
@@ -94,31 +53,20 @@ function makeCumulusResources() {
         dummy.scale.set(width, width * rng.range(0.75, 0.9), 1)
         dummy.updateMatrix()
         dummy.matrix.toArray(matrices, index * 16)
+        dummy.position.toArray(centers, index * 3)
+        scales[index * 2] = dummy.scale.x
+        scales[index * 2 + 1] = dummy.scale.y
         phases[index] = phase
         drift[index * 2] = Math.cos(angle + Math.PI * 0.5) * rng.range(8, 24)
         drift[index * 2 + 1] = Math.sin(angle + Math.PI * 0.5) * rng.range(8, 24)
     }
 
+    geometry.setAttribute('aCenter', new THREE.InstancedBufferAttribute(centers, 3))
+    geometry.setAttribute('aScale', new THREE.InstancedBufferAttribute(scales, 2))
     geometry.setAttribute('aPhase', new THREE.InstancedBufferAttribute(phases, 1))
     geometry.setAttribute('aDrift', new THREE.InstancedBufferAttribute(drift, 2))
-    const material = new THREE.ShaderMaterial({
-        uniforms: {
-            uColor: { value: new THREE.Color() },
-            uOpacity: { value: 0 },
-            uTime: { value: 0 },
-            uSkyFlash: { value: 0 },
-            uFogColor: { value: new THREE.Color() },
-            uFogNear: { value: 35 },
-            uFogFar: { value: 300 },
-        },
-        vertexShader: CUMULUS_VERTEX_SHADER,
-        fragmentShader: CUMULUS_FRAGMENT_SHADER,
-        side: THREE.DoubleSide,
-        transparent: true,
-        depthWrite: false,
-        fog: false,
-    })
-    return { geometry, material, matrices }
+    const nodeMaterial = makeCumulusMaterial(geometry)
+    return { geometry, ...nodeMaterial, matrices }
 }
 
 function makeLightningResources() {
@@ -173,29 +121,18 @@ export function Atmosphere(): React.ReactNode {
     const lightningRng = useMemo(() => createRng(0x71a4f11), [])
     const lightning = useRef({ nextAt: 8, startedAt: Number.NEGATIVE_INFINITY })
     const cloudGeometry = useMemo(() => new THREE.CircleGeometry(600, 64), [])
-    const cloudMaterials = useMemo(() => CLOUD_LAYERS.map(makeCloudMaterial), [])
+    const cloudsResources = useMemo(
+        () => CLOUD_LAYERS.map((layer) => makeCloudMaterial(layer.y, layer.phase)),
+        [],
+    )
     const cloudPalettes = useMemo<BiomePalette[]>(() => CLOUD_LAYERS.map((layer) => blendedPalette(layer.y)), [])
     const cumulus = useMemo(makeCumulusResources, [])
     const lightningBolt = useMemo(makeLightningResources, [])
-    const skyMaterial = useMemo(() => new THREE.ShaderMaterial({
-        uniforms: {
-            uSkyTop: { value: palette.skyTop.clone() },
-            uSkyHorizon: { value: palette.skyHorizon.clone() },
-            uFogColor: { value: palette.fog.clone() },
-            uSunColor: { value: palette.sunColor.clone() },
-            uSunDirection: { value: new THREE.Vector3(0, 1, 0) },
-            uTime: { value: 0 },
-            uStarStrength: { value: 0 },
-            uAuroraStrength: { value: 0 },
-            uCosmosStrength: { value: 0 },
-            uHazeThickness: { value: 0.075 },
-            uSkyFlash: { value: 0 },
-        },
-        vertexShader: SKY_VERTEX_SHADER,
-        fragmentShader: SKY_FRAGMENT_SHADER,
-        side: THREE.BackSide,
-        depthWrite: false,
-        fog: false,
+    const sky = useMemo(() => makeSkyMaterial({
+        skyTop: palette.skyTop,
+        skyHorizon: palette.skyHorizon,
+        fogColor: palette.fog,
+        sunColor: palette.sunColor,
     }), [palette])
 
     useLayoutEffect(() => {
@@ -225,14 +162,14 @@ export function Atmosphere(): React.ReactNode {
     }, [background, fog, scene])
 
     useEffect(() => () => {
-        skyMaterial.dispose()
+        sky.material.dispose()
         cloudGeometry.dispose()
-        for (const material of cloudMaterials) material.dispose()
+        for (const cloud of cloudsResources) cloud.material.dispose()
         cumulus.geometry.dispose()
         cumulus.material.dispose()
         lightningBolt.geometry.dispose()
         lightningBolt.material.dispose()
-    }, [cloudGeometry, cloudMaterials, cumulus, lightningBolt, skyMaterial])
+    }, [cloudGeometry, cloudsResources, cumulus, lightningBolt, sky])
 
     useFrame((state) => {
         sanitizePosition(livePlayer.pos, safePlayer)
@@ -243,51 +180,51 @@ export function Atmosphere(): React.ReactNode {
         sunDirectionAt(safeY, sunDirection)
 
         const elapsed = state.clock.elapsedTime
-        const sky = skyRef.current
-        if (sky) sky.position.copy(safeCamera)
+        const skyMesh = skyRef.current
+        if (skyMesh) skyMesh.position.copy(safeCamera)
         const cloudGroup = cloudGroupRef.current
         if (cloudGroup) cloudGroup.position.set(safePlayer.x, 0, safePlayer.z)
         lightningBolt.line.position.set(safePlayer.x, 0, safePlayer.z)
 
-        skyMaterial.uniforms.uSkyTop.value.copy(palette.skyTop)
-        skyMaterial.uniforms.uSkyHorizon.value.copy(palette.skyHorizon)
-        skyMaterial.uniforms.uFogColor.value.copy(palette.fog)
-        skyMaterial.uniforms.uSunColor.value.copy(palette.sunColor)
-        skyMaterial.uniforms.uSunDirection.value.copy(sunDirection)
-        skyMaterial.uniforms.uTime.value = elapsed
-        skyMaterial.uniforms.uStarStrength.value = altitude.starStrength
-        skyMaterial.uniforms.uAuroraStrength.value = altitude.auroraStrength
-        skyMaterial.uniforms.uCosmosStrength.value = altitude.cosmosStrength
-        skyMaterial.uniforms.uHazeThickness.value = altitude.hazeThickness
+        sky.uniforms.uSkyTop.value.copy(palette.skyTop)
+        sky.uniforms.uSkyHorizon.value.copy(palette.skyHorizon)
+        sky.uniforms.uFogColor.value.copy(palette.fog)
+        sky.uniforms.uSunColor.value.copy(palette.sunColor)
+        sky.uniforms.uSunDirection.value.copy(sunDirection)
+        sky.uniforms.uTime.value = elapsed
+        sky.uniforms.uStarStrength.value = altitude.starStrength
+        sky.uniforms.uAuroraStrength.value = altitude.auroraStrength
+        sky.uniforms.uCosmosStrength.value = altitude.cosmosStrength
+        sky.uniforms.uHazeThickness.value = altitude.hazeThickness
 
         fog.color.copy(palette.fog)
         fog.near = altitude.fogNear
         fog.far = altitude.fogFar
         background.copy(palette.skyHorizon).lerp(palette.skyTop, 0.12)
 
-        for (let index = 0; index < cloudMaterials.length; index += 1) {
-            const material = cloudMaterials[index]
+        for (let index = 0; index < cloudsResources.length; index += 1) {
+            const uniforms = cloudsResources[index].uniforms
             const layerPalette = cloudPalettes[index]
             blendedPalette(CLOUD_LAYERS[index].y, layerPalette)
             if (index >= STORM_LAYER_START) {
-                material.uniforms.uColor.value.copy(layerPalette.fog).lerp(STORM_CLOUD_COLOR, 0.68)
+                uniforms.uColor.value.copy(layerPalette.fog).lerp(STORM_CLOUD_COLOR, 0.68)
             } else {
-                material.uniforms.uColor.value.copy(layerPalette.fog)
+                uniforms.uColor.value.copy(layerPalette.fog)
                     .lerp(layerPalette.skyHorizon, 0.42)
                     .lerp(CLOUD_WHITE, 0.32)
             }
-            material.uniforms.uTime.value = elapsed
-            material.uniforms.uOpacity.value = altitude.cloudOpacity * CLOUD_LAYERS[index].opacity
-            material.uniforms.uFogColor.value.copy(fog.color)
-            material.uniforms.uFogNear.value = fog.near
-            material.uniforms.uFogFar.value = fog.far
+            uniforms.uTime.value = elapsed
+            uniforms.uOpacity.value = altitude.cloudOpacity * CLOUD_LAYERS[index].opacity
+            uniforms.uFogColor.value.copy(fog.color)
+            uniforms.uFogNear.value = fog.near
+            uniforms.uFogFar.value = fog.far
         }
-        cumulus.material.uniforms.uColor.value.copy(palette.fog).lerp(palette.skyHorizon, 0.5)
-        cumulus.material.uniforms.uOpacity.value = altitude.cloudOpacity * 0.86
-        cumulus.material.uniforms.uTime.value = elapsed
-        cumulus.material.uniforms.uFogColor.value.copy(fog.color)
-        cumulus.material.uniforms.uFogNear.value = fog.near
-        cumulus.material.uniforms.uFogFar.value = fog.far
+        cumulus.uniforms.uColor.value.copy(palette.fog).lerp(palette.skyHorizon, 0.5)
+        cumulus.uniforms.uOpacity.value = altitude.cloudOpacity * 0.86
+        cumulus.uniforms.uTime.value = elapsed
+        cumulus.uniforms.uFogColor.value.copy(fog.color)
+        cumulus.uniforms.uFogNear.value = fog.near
+        cumulus.uniforms.uFogFar.value = fog.far
 
         let flash = 0
         if (altitude.stormStrength > 0.05 && elapsed >= lightning.current.nextAt) {
@@ -324,9 +261,9 @@ export function Atmosphere(): React.ReactNode {
             )
             flash = attack * decay * cutoff * altitude.stormStrength
         }
-        skyMaterial.uniforms.uSkyFlash.value = flash
-        for (const material of cloudMaterials) material.uniforms.uSkyFlash.value = flash
-        cumulus.material.uniforms.uSkyFlash.value = flash
+        sky.uniforms.uSkyFlash.value = flash
+        for (const cloud of cloudsResources) cloud.uniforms.uSkyFlash.value = flash
+        cumulus.uniforms.uSkyFlash.value = flash
         lightningBolt.line.visible = altitude.stormStrength > 0.05 && flashAge >= 0 && flashAge < 0.2
         lightningBolt.material.opacity = lightningBolt.line.visible
             ? (1 - flashAge / 0.2) * altitude.stormStrength
@@ -369,7 +306,7 @@ export function Atmosphere(): React.ReactNode {
 
     return (
         <>
-            <mesh ref={skyRef} material={skyMaterial} renderOrder={-1000} frustumCulled={false}>
+            <mesh ref={skyRef} material={sky.material} renderOrder={-1000} frustumCulled={false}>
                 <sphereGeometry args={[750, 32, 20]} />
             </mesh>
             {clouds && (
@@ -378,7 +315,7 @@ export function Atmosphere(): React.ReactNode {
                         <mesh
                             key={layer.y}
                             geometry={cloudGeometry}
-                            material={cloudMaterials[index]}
+                            material={cloudsResources[index].material}
                             position-y={layer.y}
                             rotation-x={-Math.PI * 0.5}
                             renderOrder={-20 + index}
