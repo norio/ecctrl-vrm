@@ -24,9 +24,10 @@ import { CapsuleCahracterModel } from "../CapsuleCharacterModel";
 import VrmCharacterModel from "../vrm/VrmCharacterModel";
 import VrmErrorBoundary from "../vrm/VrmErrorBoundary";
 import { useVrmStore } from "../vrm/useVrmStore";
+import { useIsTouchDevice } from "../ui/useIsTouchDevice";
 import { debugRefs, requestPlayerTeleport } from "./DebugApi";
 import type { LevelSpec } from "./level";
-import { livePlayer, useGameStore } from "./useGameStore";
+import { liveControls, livePlayer, useGameStore } from "./useGameStore";
 
 export interface PlayerRigProps {
     spec: LevelSpec;
@@ -37,6 +38,7 @@ export interface PlayerRigProps {
 }
 
 const zeroVelocity = { x: 0, y: 0, z: 0 };
+const pointerLockPatchedElements = new WeakSet<Element>();
 
 export function PlayerRig({
     spec,
@@ -46,7 +48,10 @@ export function PlayerRig({
     footIK,
 }: PlayerRigProps) {
     const scene = useThree((state) => state.scene);
+    const gl = useThree((state) => state.gl);
     const vrmUrl = useVrmStore((state) => state.vrmUrl);
+    const screen = useGameStore((state) => state.screen);
+    const isTouchDevice = useIsTouchDevice();
     const ecctrlRef = useRef<EcctrlHandle | null>(null);
     const cameraControlsRef = useRef<EcctrlCameraControlsHandle>(null);
     const cameraUp = useRef(new THREE.Vector3(0, 1, 0));
@@ -60,6 +65,50 @@ export function PlayerRig({
     const joystickLState = useRef({ x: 0, y: 0 });
     const buttonState = useRef({ b1: false, b2: false });
     const [subscribeKeys, getKeys] = useKeyboardControls();
+
+    useLayoutEffect(() => {
+        const cameraControls = cameraControlsRef.current;
+        liveControls.cameraControls = cameraControls;
+        return () => {
+            if (liveControls.cameraControls === cameraControls) {
+                liveControls.cameraControls = null;
+            }
+        };
+    }, []);
+
+    useLayoutEffect(() => {
+        const element = gl.domElement;
+        if (pointerLockPatchedElements.has(element)) return;
+        const originalRequestPointerLock = element.requestPointerLock;
+        pointerLockPatchedElements.add(element);
+        element.requestPointerLock = (...args) => {
+            // Safari/Firefox return undefined here despite the lib.dom Promise type.
+            const result = originalRequestPointerLock.apply(element, args) as
+                | Promise<void>
+                | undefined;
+            // Ignore Chrome's async rejection during the pointer-lock cooldown.
+            result?.catch(() => {});
+            return result as Promise<void>;
+        };
+        return () => {
+            element.requestPointerLock = originalRequestPointerLock;
+            pointerLockPatchedElements.delete(element);
+        };
+    }, [gl]);
+
+    useEffect(() => {
+        if (screen !== "playing" || isTouchDevice) return;
+        const relockPointer = () => {
+            if (document.pointerLockElement !== null) return;
+            try {
+                liveControls.cameraControls?.lockPointer();
+            } catch {
+                // Pointer lock may be temporarily unavailable after an unlock.
+            }
+        };
+        gl.domElement.addEventListener("pointerdown", relockPointer);
+        return () => gl.domElement.removeEventListener("pointerdown", relockPointer);
+    }, [gl, isTouchDevice, screen]);
 
     useLayoutEffect(() => {
         const mapGroup = scene.getObjectByName("OnlyUpMapGroup");

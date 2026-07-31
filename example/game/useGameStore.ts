@@ -1,5 +1,6 @@
 import * as THREE from 'three'
 import { create } from 'zustand'
+import type { EcctrlCameraControlsHandle } from '../../src/camera'
 
 export const livePlayer: { pos: THREE.Vector3; velY: number; onGround: boolean } = {
     pos: new THREE.Vector3(0, 1, 0),
@@ -7,7 +8,12 @@ export const livePlayer: { pos: THREE.Vector3; velY: number; onGround: boolean }
     onGround: false,
 }
 
+export const liveControls: { cameraControls: EcctrlCameraControlsHandle | null } = {
+    cameraControls: null,
+}
+
 export interface GameState {
+    screen: 'loading' | 'start' | 'playing'
     seed: number
     status: 'playing' | 'summit'
     playerY: number
@@ -15,6 +21,7 @@ export interface GameState {
     startedAt: number
     summitTimeMs: number | null
     lastCheckpoint: { pos: [number, number, number]; index: number }
+    setScreen(screen: GameState['screen']): void
     setSeed(seed: number): void
     setPlayerY(y: number): void
     setCheckpoint(pos: [number, number, number], index: number): void
@@ -26,6 +33,7 @@ const now = () => performance.now()
 const initialCheckpoint = () => ({ pos: [0, 0, 0] as [number, number, number], index: 0 })
 
 export const useGameStore = create<GameState>()((set, get) => ({
+    screen: 'loading',
     seed: 12345,
     status: 'playing',
     playerY: 0,
@@ -33,6 +41,7 @@ export const useGameStore = create<GameState>()((set, get) => ({
     startedAt: now(),
     summitTimeMs: null,
     lastCheckpoint: initialCheckpoint(),
+    setScreen: (screen) => set({ screen }),
     setSeed: (seed) => {
         livePlayer.pos.set(0, 1, 0)
         livePlayer.velY = 0

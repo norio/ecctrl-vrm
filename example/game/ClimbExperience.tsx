@@ -30,6 +30,7 @@ const ECCTRL_KEYBOARD_MAP = [
 
 export default function ClimbExperience() {
   const seed = useGameStore((state) => state.seed);
+  const screen = useGameStore((state) => state.screen);
   const spec = useMemo(() => generateLevel(seed), [seed]);
   const gravityField = useMemo(() => makeGravityField(spec), [spec]);
 
@@ -38,6 +39,7 @@ export default function ClimbExperience() {
   }, [gravityField]);
 
   const timeScale = useRef(1);
+  const hasStarted = useRef(false);
   const [{ pausedPhysics, physicsDebug, physicsGravity }, setWorldSettings] = useControls(
     "World Settings",
     () => ({
@@ -78,11 +80,10 @@ export default function ClimbExperience() {
   );
 
   useEffect(() => {
-    const timeout = setTimeout(() => {
-      setWorldSettings({ pausedPhysics: false });
-    }, 1000);
-    return () => clearTimeout(timeout);
-  }, [setWorldSettings]);
+    if (screen !== "playing" || hasStarted.current) return;
+    hasStarted.current = true;
+    setWorldSettings({ pausedPhysics: false });
+  }, [screen, setWorldSettings]);
 
   return (
     <>

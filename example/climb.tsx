@@ -1,4 +1,5 @@
 import "./style.css";
+import "./game/hud/screens.css";
 import * as THREE from "three";
 import ReactDOM from "react-dom/client";
 import { Canvas } from "@react-three/fiber";
@@ -9,6 +10,8 @@ import { Bvh } from "@react-three/drei";
 import { Joystick, VirtualButton } from "../src/input";
 import { AltitudeHud } from "./game/hud/AltitudeHud";
 import { ClimbControlHints } from "./game/hud/ClimbControlHints";
+import { LoadingScreen } from "./game/hud/LoadingScreen";
+import { StartScreen } from "./game/hud/StartScreen";
 import { CopyrightNotice } from "./ui/CopyrightNotice";
 import { useIsTouchDevice } from "./ui/useIsTouchDevice";
 import { VrmDropTarget } from "./vrm/VrmDropTarget";
@@ -34,6 +37,8 @@ const JoystickControls = () => {
 root.render(
   <>
     <Leva collapsed />
+    <LoadingScreen />
+    <StartScreen />
     <JoystickControls />
     <AltitudeHud />
     <ClimbControlHints />
