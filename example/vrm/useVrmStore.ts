@@ -8,8 +8,8 @@ export interface VrmStoreState {
 }
 
 export const useVrmStore = /* @__PURE__ */ create<VrmStoreState>((set) => ({
-  vrmUrl: assetUrl("sample.vrm"),
-  vrmName: "sample.vrm",
+  vrmUrl: assetUrl("AvatarSample_L.vrm"),
+  vrmName: "AvatarSample_L.vrm",
   setVrm: (url, name) =>
     set((state) => {
       if (state.vrmUrl !== url && state.vrmUrl.startsWith("blob:")) {

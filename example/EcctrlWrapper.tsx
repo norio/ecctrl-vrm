@@ -315,7 +315,7 @@ export default function EcctrlWrapper({ paused = false, timeScale = 1 }: EcctrlW
             }),
             characterModel: { options: { VRM: "vrm", Mannequin: "mannequin", Capsule: "capsule" }, value: "vrm" },
             footIK: true,
-            "Load sample.vrm": button(() => setVrm(assetUrl("sample.vrm"), "sample.vrm")),
+            "Load AvatarSample_L.vrm": button(() => setVrm(assetUrl("AvatarSample_L.vrm"), "AvatarSample_L.vrm")),
             "Load sample2.vrm": button(() => setVrm(assetUrl("sample2.vrm"), "sample2.vrm")),
             debug: true,
             enable: true,
