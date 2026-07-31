@@ -130,8 +130,23 @@ export default function VrmCharacterModel({
     vrm.scene.traverse((object) => {
       object.frustumCulled = false;
       if (object instanceof THREE.Mesh) {
+        object.layers.enable(1);
         object.castShadow = true;
         object.receiveShadow = true;
+        const materials = Array.isArray(object.material)
+          ? object.material
+          : [object.material];
+        for (const candidate of materials) {
+          if ((candidate as any).isMToonMaterial !== true) continue;
+          const material = candidate as any;
+          material.giEqualizationFactor = 0.8;
+          material.shadeColorFactor.lerp(material.color, 0.5);
+          material.rimLightingMixFactor = 0.6;
+          material.parametricRimFresnelPowerFactor = 2.5;
+          material.parametricRimColorFactor
+            .set("#cfe0ff")
+            .multiplyScalar(0.18);
+        }
       }
     });
 

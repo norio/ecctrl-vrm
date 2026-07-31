@@ -1,6 +1,5 @@
 import "./style.css";
 import * as THREE from "three"
-import { WebGPURenderer } from "three/webgpu";
 import ReactDOM from "react-dom/client";
 import { Canvas } from "@react-three/fiber";
 import Experience from "../example/Experience";
@@ -14,6 +13,12 @@ import { InteractionPrompt } from "./ui/InteractionPrompt";
 import { CopyrightNotice } from "./ui/CopyrightNotice";
 import { useIsTouchDevice } from "./ui/useIsTouchDevice";
 import { VrmDropTarget } from "./vrm/VrmDropTarget";
+
+// The climbing game lives at /climb/ as its own MPA entry. The dev/preview
+// servers' SPA fallback routes the slash-less /climb here, so bounce it.
+if (window.location.pathname.replace(/\/+$/, "") === "/climb") {
+  window.location.replace("/climb/");
+}
 
 const root = ReactDOM.createRoot(document.querySelector("#root")!);
 

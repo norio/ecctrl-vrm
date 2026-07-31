@@ -3,6 +3,10 @@
   "outputDirectory": "example/exampleDist",
   "rewrites": [
     {
+      "source": "/climb",
+      "destination": "/climb/index.html"
+    },
+    {
       "source": "/(.*)",
       "destination": "/index.html"
     }

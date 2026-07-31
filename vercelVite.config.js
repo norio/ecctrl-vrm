@@ -1,8 +1,12 @@
 import { defineConfig } from "vite";
 import react from "@vitejs/plugin-react";
+import { fileURLToPath } from "node:url";
+import { dirname, resolve } from "node:path";
 
 const isCodeSandbox =
   "SANDBOX_URL" in process.env || "CODESANDBOX_HOST" in process.env;
+
+const rootDir = resolve(dirname(fileURLToPath(import.meta.url)), "example");
 
 export default defineConfig({
   plugins: [react()],
@@ -17,5 +21,11 @@ export default defineConfig({
     outDir: "./exampleDist",
     emptyOutDir: true,
     sourcemap: true,
+    rollupOptions: {
+      input: {
+        main: resolve(rootDir, "index.html"),
+        climb: resolve(rootDir, "climb/index.html"),
+      },
+    },
   },
 });

@@ -1,0 +1,61 @@
+import * as THREE from 'three'
+import { create } from 'zustand'
+
+export const livePlayer: { pos: THREE.Vector3; velY: number; onGround: boolean } = {
+    pos: new THREE.Vector3(0, 1, 0),
+    velY: 0,
+    onGround: false,
+}
+
+export interface GameState {
+    seed: number
+    status: 'playing' | 'summit'
+    playerY: number
+    bestY: number
+    startedAt: number
+    summitTimeMs: number | null
+    lastCheckpoint: { pos: [number, number, number]; index: number }
+    setSeed(seed: number): void
+    setPlayerY(y: number): void
+    setCheckpoint(pos: [number, number, number], index: number): void
+    reachSummit(): void
+    resetRun(): void
+}
+
+const now = () => performance.now()
+const initialCheckpoint = () => ({ pos: [0, 0, 0] as [number, number, number], index: 0 })
+
+export const useGameStore = create<GameState>()((set, get) => ({
+    seed: 12345,
+    status: 'playing',
+    playerY: 0,
+    bestY: 0,
+    startedAt: now(),
+    summitTimeMs: null,
+    lastCheckpoint: initialCheckpoint(),
+    setSeed: (seed) => {
+        livePlayer.pos.set(0, 1, 0)
+        livePlayer.velY = 0
+        livePlayer.onGround = false
+        set({
+            seed: seed >>> 0,
+            status: 'playing',
+            playerY: 0,
+            bestY: 0,
+            startedAt: now(),
+            summitTimeMs: null,
+            lastCheckpoint: initialCheckpoint(),
+        })
+    },
+    setPlayerY: (playerY) => set((state) => ({ playerY, bestY: Math.max(state.bestY, playerY) })),
+    setCheckpoint: (pos, index) => {
+        if (index <= get().lastCheckpoint.index) return
+        set({ lastCheckpoint: { pos: [...pos], index } })
+    },
+    reachSummit: () => {
+        const state = get()
+        if (state.status === 'summit') return
+        set({ status: 'summit', summitTimeMs: now() - state.startedAt })
+    },
+    resetRun: () => set({ status: 'playing', startedAt: now(), summitTimeMs: null, lastCheckpoint: initialCheckpoint() }),
+}))
