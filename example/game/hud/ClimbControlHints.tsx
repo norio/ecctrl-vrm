@@ -1,5 +1,6 @@
 import React, { type CSSProperties, useEffect, useMemo, useState } from "react";
 import { useIsTouchDevice } from "../../ui/useIsTouchDevice";
+import { readGamepad } from "../gamepad";
 
 type HintKey = {
   label: string;
@@ -33,6 +34,17 @@ const CONTROL_HINTS: HintPreset = {
   ],
 };
 
+const GAMEPAD_CONTROL_HINTS: HintPreset = {
+  accent: "#e5e7eb",
+  groups: [
+    { label: "Move", keys: [wideKey("L Stick")] },
+    { label: "Camera", keys: [wideKey("R Stick")] },
+    { label: "Jump", keys: [key("A")] },
+    { label: "Walk", keys: [key("LB")] },
+    { label: "Respawn", keys: [key("Y")] },
+  ],
+};
+
 const isEditableTarget = (target: EventTarget | null) => {
   if (!(target instanceof HTMLElement)) return false;
   const tagName = target.tagName.toLowerCase();
@@ -43,7 +55,10 @@ export function ClimbControlHints() {
   const isTouchDevice = useIsTouchDevice();
   const [pressedKeys, setPressedKeys] = useState<Set<string>>(() => new Set());
   const [isIdle, setIsIdle] = useState(false);
-  const preset = CONTROL_HINTS;
+  const [isGamepadActive, setIsGamepadActive] = useState(
+    () => readGamepad().connected,
+  );
+  const preset = isGamepadActive ? GAMEPAD_CONTROL_HINTS : CONTROL_HINTS;
 
   const visibleCodes = useMemo(() => {
     const codes = new Set<string>();
@@ -92,6 +107,19 @@ export function ClimbControlHints() {
       window.removeEventListener("blur", clearPressedKeys);
     };
   }, [visibleCodes]);
+
+  useEffect(() => {
+    const handleGamepadConnected = () => setIsGamepadActive(true);
+    const handleGamepadDisconnected = () => {
+      setIsGamepadActive(readGamepad().connected);
+    };
+    window.addEventListener("gamepadconnected", handleGamepadConnected);
+    window.addEventListener("gamepaddisconnected", handleGamepadDisconnected);
+    return () => {
+      window.removeEventListener("gamepadconnected", handleGamepadConnected);
+      window.removeEventListener("gamepaddisconnected", handleGamepadDisconnected);
+    };
+  }, []);
 
   if (isTouchDevice) return null;
 

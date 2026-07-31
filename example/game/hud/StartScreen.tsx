@@ -2,6 +2,7 @@ import { useProgress } from "@react-three/drei";
 import { useEffect, useRef, type ChangeEvent } from "react";
 import { useIsTouchDevice } from "../../ui/useIsTouchDevice";
 import { useVrmStore } from "../../vrm/useVrmStore";
+import { gamepadButtonPressed, readGamepad, type GamepadFrame } from "../gamepad";
 import { liveControls, useGameStore } from "../useGameStore";
 
 export function StartScreen() {
@@ -24,6 +25,28 @@ export function StartScreen() {
     document.addEventListener("pointerlockchange", handlePointerLockChange);
     return () => document.removeEventListener("pointerlockchange", handlePointerLockChange);
   }, [isTouchDevice]);
+
+  useEffect(() => {
+    if (screen !== "start") return;
+
+    let animationFrame = 0;
+    // Seed with a snapshot instead of null so a button already held when the
+    // start screen (re)appears is not misread as a fresh rising edge.
+    let previousFrame: GamepadFrame | null = readGamepad();
+    const pollGamepad = () => {
+      const currentFrame = readGamepad();
+      if (gamepadButtonPressed(previousFrame, currentFrame, "start")) {
+        // Gamepad sessions do not acquire pointer lock.
+        setScreen("playing");
+        return;
+      }
+      previousFrame = currentFrame;
+      animationFrame = requestAnimationFrame(pollGamepad);
+    };
+
+    animationFrame = requestAnimationFrame(pollGamepad);
+    return () => cancelAnimationFrame(animationFrame);
+  }, [screen, setScreen]);
 
   if (screen !== "start") return null;
 

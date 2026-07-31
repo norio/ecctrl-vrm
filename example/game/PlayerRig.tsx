@@ -26,6 +26,11 @@ import VrmErrorBoundary from "../vrm/VrmErrorBoundary";
 import { useVrmStore } from "../vrm/useVrmStore";
 import { useIsTouchDevice } from "../ui/useIsTouchDevice";
 import { debugRefs, requestPlayerTeleport } from "./DebugApi";
+import {
+    gamepadButtonPressed,
+    readGamepad,
+    type GamepadFrame,
+} from "./gamepad";
 import type { LevelSpec } from "./level";
 import { liveControls, livePlayer, useGameStore } from "./useGameStore";
 
@@ -38,6 +43,7 @@ export interface PlayerRigProps {
 }
 
 const zeroVelocity = { x: 0, y: 0, z: 0 };
+const gamepadCameraSensitivity = 2;
 const pointerLockPatchedElements = new WeakSet<Element>();
 
 export function PlayerRig({
@@ -64,6 +70,8 @@ export function PlayerRig({
     const hudElapsed = useRef(0);
     const joystickLState = useRef({ x: 0, y: 0 });
     const buttonState = useRef({ b1: false, b2: false });
+    const prevGamepadFrame = useRef<GamepadFrame | null>(null);
+    const padJumpArmed = useRef(false);
     const [subscribeKeys, getKeys] = useKeyboardControls();
 
     useLayoutEffect(() => {
@@ -148,25 +156,29 @@ export function PlayerRig({
         );
     }, []);
 
+    const handleRespawn = useCallback(() => {
+        if (useGameStore.getState().status === "summit") {
+            useGameStore.getState().resetRun();
+            requestPlayerTeleport(
+                spec.start[0],
+                spec.start[1],
+                spec.start[2],
+            );
+            return;
+        }
+        teleportToCheckpoint();
+    }, [spec.start, teleportToCheckpoint]);
+
     useEffect(() => {
         const unsubscribe = subscribeKeys(
             (state) => state.R,
             (pressed) => {
                 if (!pressed) return;
-                if (useGameStore.getState().status === "summit") {
-                    useGameStore.getState().resetRun();
-                    requestPlayerTeleport(
-                        spec.start[0],
-                        spec.start[1],
-                        spec.start[2],
-                    );
-                    return;
-                }
-                teleportToCheckpoint();
+                handleRespawn();
             },
         );
         return unsubscribe;
-    }, [spec.start, subscribeKeys, teleportToCheckpoint]);
+    }, [handleRespawn, subscribeKeys]);
 
     const sleepCharacter = useCallback(() => {
         const body = ecctrlRef.current?.body;
@@ -196,6 +208,17 @@ export function PlayerRig({
         const handle = ecctrlRef.current;
         if (!handle?.body) return;
         const keys = getKeys();
+        const pad = readGamepad();
+
+        // A held-over A press from the start screen (where Ecctrl's frame
+        // loop is disabled and canJumpAgain never resets) must not fire a
+        // jump the instant the game starts; require a release first.
+        if (!pad.jump) padJumpArmed.current = true;
+        const padJump = pad.jump && padJumpArmed.current;
+
+        if (gamepadButtonPressed(prevGamepadFrame.current, pad, "respawn")) {
+            handleRespawn();
+        }
 
         const bodyPosition = handle.body.translation();
         const bodyIsFinite = Number.isFinite(bodyPosition.x)
@@ -231,15 +254,40 @@ export function PlayerRig({
             livePlayer.onGround = handle.isOnGround;
         }
 
+        const touchJoystick = joystickLState.current;
+        const keyboardMovementActive = keys.W || keys.Up
+            || keys.S || keys.Down
+            || keys.A || keys.Left
+            || keys.D || keys.Right;
+        const gamepadJoystick = keyboardMovementActive
+            ? { x: 0, y: 0 }
+            // Gamepad Y is positive down; Ecctrl joystick Y is positive forward.
+            : { x: pad.leftStick.x, y: -pad.leftStick.y };
+        const joystick = touchJoystick.x !== 0 || touchJoystick.y !== 0
+            ? touchJoystick
+            : gamepadJoystick;
         handle.setMovement({
             forward: keys.W || keys.Up,
             backward: keys.S || keys.Down,
             leftward: keys.A || keys.Left,
             rightward: keys.D || keys.Right,
-            joystick: joystickLState.current,
-            run: !(keys.Shift || buttonState.current.b1),
-            jump: keys.Space || buttonState.current.b2,
+            joystick,
+            run: !(keys.Shift || buttonState.current.b1 || pad.walk),
+            jump: keys.Space || buttonState.current.b2 || padJump,
         });
+
+        if (
+            cameraControlsRef.current
+            && (pad.rightStick.x !== 0 || pad.rightStick.y !== 0)
+        ) {
+            // Negation makes stick direction match the expected look direction.
+            cameraControlsRef.current.rotate(
+                -pad.rightStick.x * gamepadCameraSensitivity * delta,
+                -pad.rightStick.y * gamepadCameraSensitivity * delta,
+                false,
+            );
+        }
+        prevGamepadFrame.current = pad;
 
         hudElapsed.current += delta;
         if (
