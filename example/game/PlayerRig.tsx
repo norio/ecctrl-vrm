@@ -226,7 +226,7 @@ export function PlayerRig({
             && Number.isFinite(bodyPosition.z);
         if (!bodyIsFinite) {
             if (!warnedNonFiniteBody.current) {
-                console.warn("Only Up player body became non-finite; respawning at the last checkpoint.");
+                console.warn("Leap Up player body became non-finite; respawning at the last checkpoint.");
                 warnedNonFiniteBody.current = true;
             }
             teleportToCheckpoint();

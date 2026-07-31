@@ -79,7 +79,7 @@ export function AltitudeHud() {
             <div
                 className={`altitudeHudBiome${biomeVisible ? "" : " is-changing"}`}
             >
-                {biome.jpName}
+                {biome.name}
             </div>
 
             <div className="altitudeHudRun">
@@ -89,11 +89,11 @@ export function AltitudeHud() {
 
             {snapshot.status === "summit" && snapshot.summitTimeMs !== null && (
                 <div className="altitudeHudSummit">
-                    <div className="altitudeHudSummitTitle">登頂</div>
+                    <div className="altitudeHudSummitTitle">SUMMIT!</div>
                     <div className="altitudeHudSummitTime">
                         {formatFinalTime(snapshot.summitTimeMs)}
                     </div>
-                    <div className="altitudeHudSummitRestart">R でリスタート</div>
+                    <div className="altitudeHudSummitRestart">Press R to restart</div>
                 </div>
             )}
         </div>

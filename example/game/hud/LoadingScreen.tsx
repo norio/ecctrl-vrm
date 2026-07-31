@@ -24,12 +24,12 @@ export function LoadingScreen() {
   return (
     <div className="loadingScreen" role="status" aria-live="polite">
       <div className="loadingScreenContent">
-        <div className="loadingScreenTitle">Only Up!</div>
+        <div className="loadingScreenTitle">Leap Up!</div>
         <div className="loadingScreenProgressText">{percentage}%</div>
         <div
           className="loadingScreenProgressTrack"
           role="progressbar"
-          aria-label="ゲームデータを読み込み中"
+          aria-label="Loading game data"
           aria-valuemin={0}
           aria-valuemax={100}
           aria-valuenow={percentage}

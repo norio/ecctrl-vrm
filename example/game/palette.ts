@@ -19,7 +19,7 @@ export interface BiomePalette {
 
 export interface Biome {
     id: BiomeId
-    jpName: string
+    name: string
     minY: number
     maxY: number
     palette: BiomePalette
@@ -60,11 +60,11 @@ function palette(
 // Hemisphere intensity anchors intentionally descend monotonically with altitude:
 // meadow 0.90, clouds 0.76, storm 0.58, cosmos 0.42, summit 0.35.
 export const BIOMES: Biome[] = [
-    { id: 'meadow', jpName: '暁の草原', minY: 0, maxY: 90, palette: palette('#6f9fd8', '#ffd9ae', '#8c887c', '#ffe0b0', 2.2, '#717e65', '#c9b98a', '#ffd27f', 0.9) },
-    { id: 'clouds', jpName: '黄昏の雲海', minY: 90, maxY: 190, palette: palette('#3d5a9e', '#ff9e6e', '#e8b9a0', '#ff9e5e', 2.6, '#b0a8c8', '#e8d0b8', '#ff9e7f', 0.76) },
-    { id: 'storm', jpName: '雷嵐の螺旋', minY: 190, maxY: 300, palette: palette('#0c101d', '#20273b', '#2a3350', '#6477ad', 1.1, '#5a6478', '#8892aa', '#8fd0ff', 0.58) },
-    { id: 'cosmos', jpName: '星海', minY: 300, maxY: 412, palette: palette('#05060f', '#1a1440', '#0e1030', '#cfd8ff', 0.9, '#3a3a55', '#6a5a9a', '#b08fff', 0.42) },
-    { id: 'summit', jpName: '頂', minY: 385, maxY: Number.POSITIVE_INFINITY, palette: palette('#0a0c1c', '#4a3a7a', '#141230', '#fff0d0', 1.8, '#d8d0c0', '#fff0d8', '#ffe9a0', 0.35) },
+    { id: 'meadow', name: 'Dawn Meadow', minY: 0, maxY: 90, palette: palette('#6f9fd8', '#ffd9ae', '#8c887c', '#ffe0b0', 2.2, '#717e65', '#c9b98a', '#ffd27f', 0.9) },
+    { id: 'clouds', name: 'Twilight Cloud Sea', minY: 90, maxY: 190, palette: palette('#3d5a9e', '#ff9e6e', '#e8b9a0', '#ff9e5e', 2.6, '#b0a8c8', '#e8d0b8', '#ff9e7f', 0.76) },
+    { id: 'storm', name: 'Storm Spiral', minY: 190, maxY: 300, palette: palette('#0c101d', '#20273b', '#2a3350', '#6477ad', 1.1, '#5a6478', '#8892aa', '#8fd0ff', 0.58) },
+    { id: 'cosmos', name: 'Sea of Stars', minY: 300, maxY: 412, palette: palette('#05060f', '#1a1440', '#0e1030', '#cfd8ff', 0.9, '#3a3a55', '#6a5a9a', '#b08fff', 0.42) },
+    { id: 'summit', name: 'The Summit', minY: 385, maxY: Number.POSITIVE_INFINITY, palette: palette('#0a0c1c', '#4a3a7a', '#141230', '#fff0d0', 1.8, '#d8d0c0', '#fff0d8', '#ffe9a0', 0.35) },
 ]
 
 export function biomeAt(y: number): Biome {

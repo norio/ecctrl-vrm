@@ -70,8 +70,8 @@ export function StartScreen() {
   return (
     <div className="startScreen" role="dialog" aria-modal="true" aria-labelledby="startScreenTitle">
       <div className="startScreenCard">
-        <h1 className="startScreenTitle" id="startScreenTitle">Only Up!</h1>
-        <p className="startScreenHint">WASD で移動・Space でジャンプ</p>
+        <h1 className="startScreenTitle" id="startScreenTitle">Leap Up!</h1>
+        <p className="startScreenHint">WASD to move · Space to jump</p>
         <button
           className="startScreenButton is-primary"
           type="button"
@@ -85,7 +85,7 @@ export function StartScreen() {
           type="button"
           onClick={() => fileInputRef.current?.click()}
         >
-          VRMファイルを選択
+          Load VRM File
         </button>
         <input
           className="startScreenFileInput"
@@ -94,7 +94,7 @@ export function StartScreen() {
           accept=".vrm"
           onChange={loadVrm}
         />
-        {active && <div className="startScreenLoading">読み込み中…</div>}
+        {active && <div className="startScreenLoading">Loading…</div>}
       </div>
     </div>
   );

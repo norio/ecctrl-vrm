@@ -18,6 +18,10 @@ export function CopyrightNotice() {
         </a>
         <span>(CC0)</span>
       </div>
+      <div className="copyrightNoticeLine">
+        <span>Sample VRM avatars made with</span>
+        <a href="https://vroid.com/en/studio" target="_blank" rel="noreferrer">VRoid Studio</a>
+      </div>
     </div>
   );
 }
