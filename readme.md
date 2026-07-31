@@ -10,7 +10,7 @@
 
 Drag a `.vrm` file onto the demo and it walks, runs, jumps, and plants its feet on uneven terrain — animated by a shared humanoid animation library retargeted onto the avatar's bones at load time, rendered with MToon on three.js `WebGPURenderer`.
 
-[![ecctrl-vrm demo](docs/images/screenshot.png)](https://norio.github.io/ecctrl-vrm/)
+[![ecctrl-vrm demo](docs/images/screenshot.webp)](https://norio.github.io/ecctrl-vrm/)
 
 **Live demo: [norio.github.io/ecctrl-vrm](https://norio.github.io/ecctrl-vrm/)** — climbing game at [/climb/](https://norio.github.io/ecctrl-vrm/climb/).
 
