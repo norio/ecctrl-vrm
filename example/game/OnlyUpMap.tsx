@@ -3,7 +3,6 @@ import { useFrame, useThree } from '@react-three/fiber'
 import type { WebGPURenderer } from 'three/webgpu'
 
 import type { LevelSpec } from './level'
-import { Dynamics } from './onlyUpMap/Dynamics'
 import { Movers } from './onlyUpMap/Movers'
 import { ProgressMarkers } from './onlyUpMap/ProgressMarkers'
 import { StaticPlatforms } from './onlyUpMap/StaticPlatforms'
@@ -52,7 +51,6 @@ export function OnlyUpMap({
         <group name="OnlyUpMapGroup">
             <StaticPlatforms platforms={spec.platforms} materials={staticMaterials} />
             <Movers movers={spec.movers} materials={dynamicMaterials} paused={paused} timeScale={timeScale} />
-            <Dynamics dynamics={spec.dynamics} materials={dynamicMaterials} paused={paused} />
             <ProgressMarkers spec={spec} materials={dynamicMaterials} />
         </group>
     )

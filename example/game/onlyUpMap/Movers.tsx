@@ -4,7 +4,12 @@ import { useFrame } from '@react-three/fiber'
 import { CuboidCollider, CylinderCollider, RigidBody, type RapierRigidBody } from '@react-three/rapier'
 
 import type { MoverSpec } from '../level'
+import { livePlayer } from '../useGameStore'
 import type { PlatformMaterialSet } from '../visuals/platformMaterials'
+
+// Movers farther than this from the player are frozen; poses are pure functions of
+// mapTime so they snap to the correct time-based phase the instant the player re-enters range.
+const ACTIVE_RANGE_SQ = 60 * 60
 
 type TimeScaleValue = number | RefObject<number>
 
@@ -62,6 +67,7 @@ export function Movers({ movers, materials, paused = false, timeScale = 1 }: Mov
             if (!body) continue
             const mover = movers[index]
             const runtime = runtimes[index]
+            if (runtime.anchor.distanceToSquared(livePlayer.pos) > ACTIVE_RANGE_SQ) continue
 
             if (mover.kind === 'lift' || mover.kind === 'patrol') {
                 const period = Math.max(0.001, mover.params.period ?? 6)

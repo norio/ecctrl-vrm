@@ -143,7 +143,8 @@
     "build:lib": "vite build && tsc",
     "build:example": "vite build -c vercelVite.config.js",
     "preview": "vite preview -c vercelVite.config.js",
-    "typecheck": "tsc --noEmit --pretty false",
+    "typecheck": "tsc --noEmit --pretty false && npm run typecheck:example",
+    "typecheck:example": "tsc --noEmit --pretty false -p tsconfig.example.json",
     "pack:dry": "npm pack --dry-run",
     "prepack": "npm run build:lib"
   }

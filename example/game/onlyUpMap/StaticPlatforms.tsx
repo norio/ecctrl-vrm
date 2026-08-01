@@ -4,12 +4,10 @@ import {
     BallCollider,
     CuboidCollider,
     CylinderCollider,
-    InstancedRigidBodies,
     RigidBody,
-    type InstancedRigidBodyProps,
 } from '@react-three/rapier'
 
-import type { StaticPlatform } from '../level'
+import type { StaticPlatform, V3 } from '../level'
 import type { MaterialKind, PlatformMaterialSet } from '../visuals/platformMaterials'
 
 interface StaticPlatformsProps {
@@ -21,7 +19,7 @@ interface StaticBatch {
     key: string
     shape: StaticPlatform['shape']
     material: MaterialKind
-    instances: InstancedRigidBodyProps[]
+    instances: Array<{ pos: V3; rot: V3; size: V3 }>
 }
 
 function isCameraCollisionException(platform: StaticPlatform): boolean {
@@ -35,15 +33,13 @@ function batchPlatforms(platforms: StaticPlatform[]): { batches: StaticBatch[]; 
     const grouped = new Map<string, StaticBatch>()
     const exceptions: StaticPlatform[] = []
 
-    platforms.forEach((platform, index) => {
+    platforms.forEach((platform) => {
         if (isCameraCollisionException(platform)) {
             exceptions.push(platform)
             return
         }
 
-        const frictionKey = platform.friction === undefined ? 'default' : String(platform.friction)
-        const restitutionKey = platform.restitution === undefined ? 'default' : String(platform.restitution)
-        const key = `${platform.shape}:${platform.material}:f${frictionKey}:r${restitutionKey}`
+        const key = `${platform.shape}:${platform.material}`
         let batch = grouped.get(key)
         if (!batch) {
             batch = {
@@ -55,10 +51,9 @@ function batchPlatforms(platforms: StaticPlatform[]): { batches: StaticBatch[]; 
             grouped.set(key, batch)
         }
         batch.instances.push({
-            key: index,
-            position: platform.pos,
-            rotation: platform.rot,
-            scale: platform.size,
+            pos: platform.pos,
+            rot: platform.rot,
+            size: platform.size,
         })
     })
 
@@ -144,24 +139,35 @@ export function StaticPlatforms({ platforms, materials }: StaticPlatformsProps) 
     return (
         <group name="OnlyUpStaticPlatforms">
             {grouped.batches.map((batch) => (
-                <InstancedRigidBodies
+                <instancedMesh
                     key={batch.key}
-                    type="fixed"
-                    colliders={false}
-                    instances={batch.instances}
-                >
-                    <instancedMesh
-                        args={[
-                            geometryFor(batch.shape, geometries),
-                            materials.get(batch.material),
-                            batch.instances.length,
-                        ]}
-                        count={batch.instances.length}
-                        castShadow
-                        receiveShadow
-                        frustumCulled={false}
-                    />
-                </InstancedRigidBodies>
+                    ref={(mesh) => {
+                        if (!mesh) return
+                        const matrix = new THREE.Matrix4()
+                        const position = new THREE.Vector3()
+                        const quaternion = new THREE.Quaternion()
+                        const rotation = new THREE.Euler()
+                        const scale = new THREE.Vector3()
+                        batch.instances.forEach((instance, index) => {
+                            position.set(...instance.pos)
+                            rotation.set(...instance.rot, 'XYZ')
+                            quaternion.setFromEuler(rotation)
+                            scale.set(...instance.size)
+                            matrix.compose(position, quaternion, scale)
+                            mesh.setMatrixAt(index, matrix)
+                        })
+                        mesh.instanceMatrix.needsUpdate = true
+                    }}
+                    args={[
+                        geometryFor(batch.shape, geometries),
+                        materials.get(batch.material),
+                        batch.instances.length,
+                    ]}
+                    count={batch.instances.length}
+                    castShadow
+                    receiveShadow
+                    frustumCulled={false}
+                />
             ))}
             {platforms.filter((platform) => !isCameraCollisionException(platform)).map((platform, index) => (
                 <PlatformCollider key={`collider-${index}`} platform={platform} />

@@ -2,17 +2,17 @@ import * as THREE from 'three'
 
 import { createRng, type Prng } from '../prng'
 import type {
-    CheckpointSpec, DecoAnchor, DynamicSpec, GravityZone, LevelSpec, LevelTuning,
+    CheckpointSpec, DecoAnchor, GravityZone, LevelSpec, LevelTuning,
     MoverSpec, StaticPlatform, V3,
 } from '../level'
 import type { BiomeId } from '../palette'
 import type { MaterialKind } from '../visuals/platformMaterials'
+import {
+    appendClearancePlacement, CHARACTER_MARGIN, checkClearance, horizontalSupport, verticalSupport,
+    type ClearancePlacement,
+} from './clearance'
 
-interface RoutePoint {
-    pos: V3
-    shape: 'box' | 'cylinder'
-    size: V3
-    rot: V3
+interface RoutePoint extends ClearancePlacement {
     verticalHalf: number
     small: boolean
     mover: boolean
@@ -32,36 +32,15 @@ const worldUp = new THREE.Vector3(0, 1, 0)
 const tmpQuat = new THREE.Quaternion()
 const tmpEuler = new THREE.Euler()
 const tmpRadial = new THREE.Vector3()
+const CLEARANCE_ATTEMPTS = 24
+const MIN_CANDIDATE_HALF_EXTENT = 0.55
+const RETRY_GAP_LIMIT_SCALE = 0.999
 
 function radialLedgeRotation(theta: number): V3 {
     tmpRadial.set(Math.cos(theta), 0, Math.sin(theta))
     tmpQuat.setFromUnitVectors(worldUp, tmpRadial)
     tmpEuler.setFromQuaternion(tmpQuat, 'XYZ')
     return [tmpEuler.x, tmpEuler.y, tmpEuler.z]
-}
-
-function horizontalSupport(shape: 'box' | 'cylinder', size: V3, rot: V3, dirX: number, dirZ: number) {
-    if (shape === 'cylinder') return size[0]
-    const sinTilt = Math.sin(rot[0])
-    const cosTilt = Math.cos(rot[0])
-    const sinYaw = Math.sin(rot[1])
-    const cosYaw = Math.cos(rot[1])
-    // Matches THREE.Euler's XYZ rotation matrix for rot.z === 0.
-    const localXDot = dirX * cosYaw - dirZ * cosTilt * sinYaw
-    const localYDot = dirZ * sinTilt
-    const localZDot = dirX * sinYaw + dirZ * cosTilt * cosYaw
-    return size[0] * Math.abs(localXDot) + size[1] * Math.abs(localYDot) + size[2] * Math.abs(localZDot)
-}
-
-function verticalSupport(shape: 'box' | 'cylinder', size: V3, rot: V3) {
-    if (shape === 'cylinder') return size[1]
-    const sinTilt = Math.sin(rot[0])
-    const cosTilt = Math.cos(rot[0])
-    const sinYaw = Math.sin(rot[1])
-    const cosYaw = Math.cos(rot[1])
-    return size[0] * Math.abs(sinTilt * sinYaw)
-        + size[1] * Math.abs(cosTilt)
-        + size[2] * Math.abs(sinTilt * cosYaw)
 }
 
 class RouteBuilder {
@@ -77,6 +56,7 @@ class RouteBuilder {
     biomeIndex = 0
     nextRest: number
     moverId = 0
+    private clearanceWindow: ClearancePlacement[] = [this.point]
 
     constructor(
         readonly rng: Prng,
@@ -112,92 +92,173 @@ class RouteBuilder {
         return [radius, height, circular ? radius : depth]
     }
 
-    private candidatePosition(shape: 'box' | 'cylinder', size: V3, tilt: number, rise: number, isMover: boolean) {
+    private candidatePosition(
+        shape: 'box' | 'cylinder',
+        size: V3,
+        tilt: number,
+        rise: number,
+        isMover: boolean,
+        turn: -1 | 1,
+        radiusJitter: number,
+        gapBias: number,
+    ) {
         const small = Math.min(size[0], size[1], size[2]) < this.tuning.smallPlatformThreshold
         const gapLimit = small || isMover || this.point.small || this.point.mover
             ? this.tuning.tightEdgeGap
             : this.tuning.maxEdgeGap
         const previousRadius = Math.hypot(this.point.pos[0], this.point.pos[2])
-        this.radius = clamp(
-            this.radius + this.rng.range(-0.65, 0.65),
+        const candidateRadius = clamp(
+            this.radius + radiusJitter,
             this.tuning.walkerRadiusMin,
             this.tuning.walkerRadiusMax,
         )
         let candidateRot: V3 = [tilt, this.angle + Math.PI * 0.5, 0]
-        const candidateVerticalHalf = verticalSupport(shape, size, candidateRot)
+        const candidatePlacement = { pos: [0, 0, 0] as V3, shape, size, rot: candidateRot }
+        const candidateVerticalHalf = verticalSupport(candidatePlacement)
         const verticalGap = Math.max(0, rise - this.point.verticalHalf - candidateVerticalHalf)
         const maxHorizontalGap = Math.sqrt(Math.max(0, gapLimit * gapLimit - verticalGap * verticalGap))
-        const targetHorizontalGap = Math.max(0.08, maxHorizontalGap * 0.52)
-        const previousTop = this.point.pos[1] + this.point.verticalHalf
-        const candidateBottom = this.y + rise - candidateVerticalHalf
-        const needsOverheadClearance = candidateBottom > previousTop
-            && candidateBottom - previousTop < this.tuning.overheadClearance
+        let targetHorizontalGap = Math.max(2 * CHARACTER_MARGIN, maxHorizontalGap * 0.65)
+        if (gapBias !== 0) {
+            targetHorizontalGap = clamp(
+                targetHorizontalGap + (gapBias > 0
+                    ? (maxHorizontalGap - targetHorizontalGap) * gapBias * RETRY_GAP_LIMIT_SCALE
+                    : (targetHorizontalGap - 2 * CHARACTER_MARGIN) * gapBias),
+                2 * CHARACTER_MARGIN,
+                maxHorizontalGap,
+            )
+        }
         if (previousRadius <= 0.001) {
             const radialX = Math.cos(this.angle)
             const radialZ = Math.sin(this.angle)
-            const candidateSupport = horizontalSupport(shape, size, candidateRot, radialX, radialZ)
-            this.radius = clamp(
-                Math.max(this.radius, this.point.size[0] + candidateSupport + targetHorizontalGap),
+            const candidateSupport = horizontalSupport(candidatePlacement, radialX, radialZ)
+            const radius = clamp(
+                Math.max(candidateRadius, this.point.size[0] + candidateSupport + targetHorizontalGap),
                 this.tuning.walkerRadiusMin,
                 this.tuning.walkerRadiusMax,
             )
+            const pos = v3(radius * radialX, this.y + rise, radius * radialZ)
+            return { pos, rot: candidateRot, verticalHalf: candidateVerticalHalf, angle: this.angle, radius }
         } else {
             const baseAngle = this.angle
             let angleDelta = 0.35
             for (let iteration = 0; iteration < 10; iteration += 1) {
-                const candidateAngle = baseAngle + this.turn * angleDelta
-                const candidateX = this.radius * Math.cos(candidateAngle)
-                const candidateZ = this.radius * Math.sin(candidateAngle)
+                const candidateAngle = baseAngle + turn * angleDelta
+                const candidateX = candidateRadius * Math.cos(candidateAngle)
+                const candidateZ = candidateRadius * Math.sin(candidateAngle)
                 const dx = candidateX - this.point.pos[0]
                 const dz = candidateZ - this.point.pos[2]
                 const horizontalDistance = Math.hypot(dx, dz)
                 const dirX = dx / horizontalDistance
                 const dirZ = dz / horizontalDistance
                 candidateRot = [tilt, candidateAngle + Math.PI * 0.5, 0]
-                const supportA = horizontalSupport(this.point.shape, this.point.size, this.point.rot, dirX, dirZ)
-                const supportB = horizontalSupport(shape, size, candidateRot, dirX, dirZ)
+                candidatePlacement.rot = candidateRot
+                const supportA = horizontalSupport(this.point, dirX, dirZ)
+                const supportB = horizontalSupport(candidatePlacement, dirX, dirZ)
                 const desiredDistance = supportA + supportB + targetHorizontalGap
                 const reachableDistance = clamp(
                     desiredDistance,
-                    Math.abs(previousRadius - this.radius) + 0.001,
-                    previousRadius + this.radius - 0.001,
+                    Math.abs(previousRadius - candidateRadius) + 0.001,
+                    previousRadius + candidateRadius - 0.001,
                 )
                 const cosine = clamp(
-                    (previousRadius * previousRadius + this.radius * this.radius - reachableDistance * reachableDistance)
-                        / (2 * previousRadius * this.radius),
+                    (previousRadius * previousRadius + candidateRadius * candidateRadius - reachableDistance * reachableDistance)
+                        / (2 * previousRadius * candidateRadius),
                     -1,
                     1,
                 )
                 angleDelta = Math.acos(cosine)
             }
-            this.angle = baseAngle + this.turn * angleDelta
-            candidateRot = [tilt, this.angle + Math.PI * 0.5, 0]
+            const angle = baseAngle + turn * angleDelta
+            candidateRot = [tilt, angle + Math.PI * 0.5, 0]
+            candidatePlacement.rot = candidateRot
+            const pos = v3(candidateRadius * Math.cos(angle), this.y + rise, candidateRadius * Math.sin(angle))
+            return { pos, rot: candidateRot, verticalHalf: verticalSupport(candidatePlacement), angle, radius: candidateRadius }
         }
-        const pos = v3(this.radius * Math.cos(this.angle), this.y + rise, this.radius * Math.sin(this.angle))
+    }
 
-        if (needsOverheadClearance) {
-            const dx = pos[0] - this.point.pos[0]
-            const dz = pos[2] - this.point.pos[2]
-            const distance = Math.hypot(dx, dz)
-            const supportA = horizontalSupport(this.point.shape, this.point.size, this.point.rot, dx / distance, dz / distance)
-            const supportB = horizontalSupport(shape, size, candidateRot, dx / distance, dz / distance)
-            if (distance < supportA + supportB) throw new Error('Generated platform violates overhead clearance')
-        }
-        return { pos, rot: candidateRot, verticalHalf: candidateVerticalHalf }
+    private candidateSizeForAttempt(size: V3, circular: boolean, attempt: number): V3 {
+        const shrinkCount = Math.floor(attempt / 6)
+        const factor = Math.pow(0.75, shrinkCount)
+        const width = Math.max(MIN_CANDIDATE_HALF_EXTENT, size[0] * factor)
+        const depth = circular ? width : Math.max(MIN_CANDIDATE_HALF_EXTENT, size[2] * factor)
+        return [width, size[1], depth]
+    }
+
+    private radiusJitterAwayFrom(offender: ClearancePlacement, angle: number, radius: number) {
+        const radialProjection = offender.pos[0] * Math.cos(angle) + offender.pos[2] * Math.sin(angle)
+        const direction = radius >= radialProjection ? 1 : -1
+        return direction * this.rng.range(0.15, 0.65)
+    }
+
+    private gapBiasAwayFrom(
+        offender: ClearancePlacement,
+        candidate: ReturnType<RouteBuilder['candidatePosition']>,
+        turn: -1 | 1,
+        attempt: number,
+    ) {
+        const advance = Math.abs(candidate.angle - this.angle)
+        const angle = this.angle + turn * advance
+        const candidateX = candidate.radius * Math.cos(angle)
+        const candidateZ = candidate.radius * Math.sin(angle)
+        const tangentX = -turn * Math.sin(angle)
+        const tangentZ = turn * Math.cos(angle)
+        const movingAway = (candidateX - offender.pos[0]) * tangentX
+            + (candidateZ - offender.pos[2]) * tangentZ >= 0
+        const retryPattern = [0, 1, 1, -1, 1, 1]
+        return retryPattern[attempt % retryPattern.length] * (movingAway ? 1 : -1)
     }
 
     addStep(biome: BiomeId, rise: number, options: StepOptions = {}) {
         const turnChance = biome === 'meadow'
             ? this.tuning.meadowTurnChance
             : biome === 'clouds' ? this.tuning.cloudsTurnChance : this.tuning.stormTurnChance
+        const turnBeforeStep = this.turn
         if (this.biomeIndex > 3 && this.rng.chance(turnChance)) this.turn = this.turn === 1 ? -1 : 1
+        const turnChanged = this.turn !== turnBeforeStep
         const rest = options.rest ?? this.routeIndex >= this.nextRest
         const shape = options.shape ?? (this.rng.chance(0.3) ? 'cylinder' : 'box')
-        const size = options.size ?? (this.routeIndex === 0 ? [1.4, 0.25, 1.4] : this.randomSize(biome, rest, shape === 'cylinder'))
+        const initialSize = options.size ?? (this.routeIndex === 0 ? [1.4, 0.25, 1.4] : this.randomSize(biome, rest, shape === 'cylinder'))
         const tilt = biome === 'meadow' && !rest && shape === 'box'
             ? this.rng.range(-20, 20) * Math.PI / 180
             : 0
-        const candidate = this.candidatePosition(shape, size, tilt, rise, Boolean(options.mover))
+        const anchor = this.point
+        let offender: ClearancePlacement | undefined
+        let previousCandidate: ReturnType<RouteBuilder['candidatePosition']> | undefined
+        let best: {
+            candidate: ReturnType<RouteBuilder['candidatePosition']>
+            size: V3
+            turn: -1 | 1
+            minMargin: number
+        } | undefined
+        for (let attempt = 0; attempt < CLEARANCE_ATTEMPTS; attempt += 1) {
+            const retryTurn = turnChanged && attempt > 0 ? turnBeforeStep : this.turn
+            const size = this.candidateSizeForAttempt(initialSize, shape === 'cylinder', attempt)
+            const radiusJitter = offender && attempt > 0
+                ? this.radiusJitterAwayFrom(offender, this.angle, this.radius)
+                : this.rng.range(-0.65, 0.65)
+            const gapBias = offender && previousCandidate && attempt > 0
+                ? this.gapBiasAwayFrom(offender, previousCandidate, retryTurn, attempt)
+                : 0
+            const candidate = this.candidatePosition(
+                shape, size, tilt, rise, Boolean(options.mover), retryTurn, radiusJitter, gapBias,
+            )
+            const placement: ClearancePlacement = {
+                pos: candidate.pos,
+                shape,
+                size,
+                rot: candidate.rot,
+                moverKind: options.mover?.kind,
+                travel: options.mover?.params.travel,
+            }
+            const clearance = checkClearance(placement, this.clearanceWindow, anchor, this.tuning.overheadClearance)
+            if (!best || clearance.minMargin > best.minMargin) {
+                best = { candidate, size, turn: retryTurn, minMargin: clearance.minMargin }
+            }
+            if (clearance.valid) break
+            offender = clearance.offender
+            previousCandidate = candidate
+        }
+        const { candidate, size, turn } = best!
         const { pos, rot } = candidate
         const material = options.material ?? (this.routeIndex % 4 === 0 ? 'accent' : 'rock')
 
@@ -215,11 +276,17 @@ class RouteBuilder {
         }
 
         this.y = pos[1]
+        this.angle = candidate.angle
+        this.radius = candidate.radius
+        this.turn = turn
         this.point = {
             pos, shape, size, rot, verticalHalf: candidate.verticalHalf,
             small: Math.min(...size) < this.tuning.smallPlatformThreshold,
             mover: Boolean(options.mover),
+            moverKind: options.mover?.kind,
+            travel: options.mover?.params.travel,
         }
+        appendClearancePlacement(this.clearanceWindow, this.point)
         this.routeIndex += 1
         this.biomeIndex += 1
         if (rest) this.nextRest = this.routeIndex + this.rng.int(this.tuning.restEveryMin, this.tuning.restEveryMax)
@@ -232,7 +299,11 @@ class RouteBuilder {
             const preferredMin = Math.min(maxRise, Math.max(this.tuning.riseMin, this.tuning.riseMax - 0.15))
             this.addStep(biome, this.rng.range(preferredMin, maxRise), choose(this.biomeIndex))
         }
-        this.addStep(biome, targetY - this.y, { ...choose(this.biomeIndex), rest: true, size: [3.1, 0.35, 3.1] })
+        this.addStep(biome, targetY - this.y, {
+            ...choose(this.biomeIndex),
+            rest: true,
+            size: [3.1, 0.35, 3.1],
+        })
     }
 }
 
@@ -242,22 +313,6 @@ function addCheckpoint(spec: Pick<LevelSpec, 'checkpoints' | 'decoAnchors'>, pos
     spec.decoAnchors.push({ pos: [...pos], biome, kind: 'checkpoint', scale: 1 })
 }
 
-function addMeadowExtras(builder: RouteBuilder, dynamics: DynamicSpec[]) {
-    const anchor = builder.point.pos
-    const bridgeCenter: V3 = [anchor[0] + 7, anchor[1] + 0.6, anchor[2]]
-    builder.platforms.push(
-        { shape: 'box', pos: [bridgeCenter[0] - 4.4, anchor[1], anchor[2]], rot: [0, 0, 0], size: [1.2, 0.3, 1.5], material: 'rock' },
-        { shape: 'box', pos: [bridgeCenter[0] + 4.4, anchor[1], anchor[2]], rot: [0, 0, 0], size: [1.2, 0.3, 1.5], material: 'rock' },
-    )
-    dynamics.push({ kind: 'seesaw', pos: bridgeCenter, size: [3.6, 0.18, 1.1], density: 200, material: 'accent' })
-    for (let index = 0; index < 5; index += 1) {
-        dynamics.push({
-            kind: 'box', pos: [anchor[0] + 4.5 + (index % 2) * 1.1, anchor[1] + 0.6 + index * 0.82, anchor[2] - 2],
-            size: [0.5, 0.5, 0.5], density: 40, material: 'accent',
-        })
-    }
-}
-
 function addWindmill(builder: RouteBuilder, speed: number, offset: number) {
     const pos = builder.point.pos
     builder.movers.push({
@@ -265,17 +320,6 @@ function addWindmill(builder: RouteBuilder, speed: number, offset: number) {
         pos: [pos[0] + offset, pos[1] + 1.4, pos[2]], rot: [Math.PI / 2, 0, 0], size: [0.28, 4.6, 0.28],
         material: 'spinner', params: { axis: [0, 0, 1], speed },
     })
-}
-
-function addStormDynamics(builder: RouteBuilder, dynamics: DynamicSpec[]) {
-    const anchor = builder.point.pos
-    for (let index = 0; index < 4; index += 1) {
-        const side = index % 2 === 0 ? -1 : 1
-        dynamics.push({
-            kind: 'box', pos: [anchor[0] + side * (2.5 + index * 0.35), anchor[1] + 1.1, anchor[2] + index * 1.25],
-            size: [0.7, 1, 0.7], density: 40, material: 'grip',
-        })
-    }
 }
 
 function addOrbitAnchors(rng: Prng, anchors: DecoAnchor[], biome: BiomeId, minY: number, maxY: number, count: number) {
@@ -355,7 +399,7 @@ function addCosmos(spec: LevelSpec, builder: RouteBuilder, rng: Prng, tuning: Le
 export function generateLevelImpl(seed: number, tuning: LevelTuning): LevelSpec {
     const rng = createRng(seed)
     const spec: LevelSpec = {
-        seed, summitY: 413.6, start: [0, 1, 0], platforms: [], movers: [], dynamics: [],
+        seed, summitY: 413.6, start: [0, 1, 0], platforms: [], movers: [],
         gravityZones: [], checkpoints: [], goal: { pos: [0, 413.6, 0] }, decoAnchors: [],
     }
     spec.platforms.push({ shape: 'cylinder', pos: [0, -1.5, 0], rot: [0, 0, 0], size: [13, 1.5, 13], material: 'startisle' })
@@ -371,7 +415,6 @@ export function generateLevelImpl(seed: number, tuning: LevelTuning): LevelSpec 
         if (index === 17 || index === 42) return { mover: { kind: 'lift', params: { travel: [0, 3.5, 0], period: index === 17 ? 6.4 : 7.6, phase: index * 0.17 } }, material: 'mover', size: [2.5, 0.3, 2.5] }
         return {}
     })
-    addMeadowExtras(builder, spec.dynamics)
     addCheckpoint(spec, builder.point.pos, 'meadow')
 
     builder.beginBiome()
@@ -398,7 +441,6 @@ export function generateLevelImpl(seed: number, tuning: LevelTuning): LevelSpec 
     })
     addWindmill(builder, 0.96, -4)
     addWindmill(builder, 1.14, 4)
-    addStormDynamics(builder, spec.dynamics)
     addCheckpoint(spec, builder.point.pos, 'storm')
 
     addCosmos(spec, builder, rng, tuning)

@@ -28,14 +28,6 @@ export interface MoverSpec {
     steps?: Array<{ pos: V3; size: V3 }>
 }
 
-export interface DynamicSpec {
-    kind: 'box' | 'ball' | 'seesaw'
-    pos: V3
-    size: V3
-    density: number
-    material: MaterialKind
-}
-
 export type GravityZone =
     | { type: 'sphere'; center: V3; radius: number }
     | { type: 'pillar'; center: V3; radius: number; yMin: number; yMax: number; rimBand: number }
@@ -50,7 +42,6 @@ export interface LevelSpec {
     start: V3
     platforms: StaticPlatform[]
     movers: MoverSpec[]
-    dynamics: DynamicSpec[]
     gravityZones: GravityZone[]
     checkpoints: CheckpointSpec[]
     goal: { pos: V3 }
