@@ -337,14 +337,14 @@ export function Atmosphere(): React.ReactNode {
                 castShadow
                 shadow-mapSize-width={4096}
                 shadow-mapSize-height={4096}
-                shadow-camera-left={-28}
-                shadow-camera-right={28}
-                shadow-camera-top={28}
-                shadow-camera-bottom={-28}
+                shadow-camera-left={-20}
+                shadow-camera-right={20}
+                shadow-camera-top={20}
+                shadow-camera-bottom={-20}
                 shadow-camera-near={1}
                 shadow-camera-far={180}
-                shadow-bias={-0.001}
-                shadow-normalBias={0.035}
+                shadow-bias={-0.00001}
+                shadow-normalBias={0.03}
             />
             <hemisphereLight ref={hemisphereRef} />
             <ambientLight ref={ambientRef} intensity={0.4} />

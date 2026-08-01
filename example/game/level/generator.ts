@@ -93,18 +93,23 @@ class RouteBuilder {
         this.biomeIndex = 0
     }
 
-    private randomSize(biome: BiomeId, rest: boolean): V3 {
+    // A Rapier cylinder collider is round and takes its radius from size[0], so a
+    // circular footprint must keep size[2] === size[0]: any extra depth would show
+    // up in the mesh as an overhang the player falls straight through.
+    private randomSize(biome: BiomeId, rest: boolean, circular: boolean): V3 {
         if (rest) {
             const radius = this.rng.range(this.tuning.restSizeMin, 3.2)
             return [radius, this.rng.range(0.22, 0.38), radius]
         }
-        if (biome === 'storm' && this.rng.chance(0.44)) return [0.55, 0.25, 2.8]
+        if (biome === 'storm' && this.rng.chance(0.44)) return [0.55, 0.25, circular ? 0.55 : 2.8]
         const altitudeT = clamp(this.y / 300, 0, 1)
         const upper = this.tuning.platformSizeMax
             + (this.tuning.platformSizeMaxAtStorm - this.tuning.platformSizeMax) * altitudeT
         const radius = this.tuning.platformSizeMin
             + (upper - this.tuning.platformSizeMin) * Math.pow(this.rng.next(), 1.25)
-        return [radius, this.rng.range(0.18, 0.38), this.rng.range(Math.max(1.1, radius * 0.72), radius * 1.18)]
+        const height = this.rng.range(0.18, 0.38)
+        const depth = this.rng.range(Math.max(1.1, radius * 0.72), radius * 1.18)
+        return [radius, height, circular ? radius : depth]
     }
 
     private candidatePosition(shape: 'box' | 'cylinder', size: V3, tilt: number, rise: number, isMover: boolean) {
@@ -188,7 +193,7 @@ class RouteBuilder {
         if (this.biomeIndex > 3 && this.rng.chance(turnChance)) this.turn = this.turn === 1 ? -1 : 1
         const rest = options.rest ?? this.routeIndex >= this.nextRest
         const shape = options.shape ?? (this.rng.chance(0.3) ? 'cylinder' : 'box')
-        const size = options.size ?? (this.routeIndex === 0 ? [1.4, 0.25, 1.4] : this.randomSize(biome, rest))
+        const size = options.size ?? (this.routeIndex === 0 ? [1.4, 0.25, 1.4] : this.randomSize(biome, rest, shape === 'cylinder'))
         const tilt = biome === 'meadow' && !rest && shape === 'box'
             ? this.rng.range(-20, 20) * Math.PI / 180
             : 0

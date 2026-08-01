@@ -8,6 +8,7 @@ export interface StaticPlatform {
     shape: 'box' | 'cylinder' | 'sphere'
     pos: V3
     rot: V3
+    /** Half extents. Cylinder colliders are round, so size[2] must equal size[0]. */
     size: V3
     material: MaterialKind
     friction?: number
@@ -20,6 +21,7 @@ export interface MoverSpec {
     shape: 'box' | 'cylinder'
     pos: V3
     rot: V3
+    /** Half extents. Cylinder colliders are round, so size[2] must equal size[0]. */
     size: V3
     material: MaterialKind
     params: { axis?: V3; travel?: V3; period?: number; speed?: number; phase?: number }
