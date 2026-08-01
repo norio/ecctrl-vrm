@@ -14,6 +14,7 @@ export const liveControls: { cameraControls: EcctrlCameraControlsHandle | null }
 
 export interface GameState {
     screen: 'loading' | 'start' | 'playing'
+    platformBakeReady: boolean
     seed: number
     status: 'playing' | 'summit'
     playerY: number
@@ -22,6 +23,7 @@ export interface GameState {
     summitTimeMs: number | null
     lastCheckpoint: { pos: [number, number, number]; index: number }
     setScreen(screen: GameState['screen']): void
+    setPlatformBakeReady(ready: boolean): void
     setSeed(seed: number): void
     setPlayerY(y: number): void
     setCheckpoint(pos: [number, number, number], index: number): void
@@ -34,6 +36,7 @@ const initialCheckpoint = () => ({ pos: [0, 0, 0] as [number, number, number], i
 
 export const useGameStore = create<GameState>()((set, get) => ({
     screen: 'loading',
+    platformBakeReady: false,
     seed: 12345,
     status: 'playing',
     playerY: 0,
@@ -42,12 +45,14 @@ export const useGameStore = create<GameState>()((set, get) => ({
     summitTimeMs: null,
     lastCheckpoint: initialCheckpoint(),
     setScreen: (screen) => set({ screen }),
+    setPlatformBakeReady: (platformBakeReady) => set({ platformBakeReady }),
     setSeed: (seed) => {
         livePlayer.pos.set(0, 1, 0)
         livePlayer.velY = 0
         livePlayer.onGround = false
         set({
             seed: seed >>> 0,
+            platformBakeReady: false,
             status: 'playing',
             playerY: 0,
             bestY: 0,

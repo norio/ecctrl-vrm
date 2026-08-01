@@ -4,6 +4,7 @@ import { useGameStore } from "../useGameStore";
 
 export function LoadingScreen() {
   const screen = useGameStore((state) => state.screen);
+  const platformBakeReady = useGameStore((state) => state.platformBakeReady);
   const { active, progress, total } = useProgress();
   const hasStartedLoading = useRef(false);
 
@@ -12,20 +13,23 @@ export function LoadingScreen() {
     if (active || total > 0) {
       hasStartedLoading.current = true;
     }
-    if (!active && hasStartedLoading.current && progress === 100) {
+    if (!active && hasStartedLoading.current && progress === 100 && platformBakeReady) {
       useGameStore.getState().setScreen("start");
     }
-  }, [active, progress, screen, total]);
+  }, [active, platformBakeReady, progress, screen, total]);
 
   if (screen !== "loading") return null;
 
-  const percentage = Math.round(progress);
+  const displayProgress = platformBakeReady ? progress : Math.min(progress, 99);
+  const percentage = Math.round(displayProgress);
 
   return (
     <div className="loadingScreen" role="status" aria-live="polite">
       <div className="loadingScreenContent">
         <div className="loadingScreenTitle">Leap Up!</div>
-        <div className="loadingScreenProgressText">{percentage}%</div>
+        <div className="loadingScreenProgressText">
+          {progress === 100 && !platformBakeReady ? "Preparing platform materials…" : `${percentage}%`}
+        </div>
         <div
           className="loadingScreenProgressTrack"
           role="progressbar"
@@ -36,7 +40,7 @@ export function LoadingScreen() {
         >
           <div
             className="loadingScreenProgressBar"
-            style={{ transform: `scaleX(${progress / 100})` }}
+            style={{ transform: `scaleX(${displayProgress / 100})` }}
           />
         </div>
       </div>

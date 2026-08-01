@@ -1,7 +1,8 @@
 import * as THREE from 'three'
-import { MeshStandardNodeMaterial } from 'three/webgpu'
+import { MeshStandardNodeMaterial, type WebGPURenderer } from 'three/webgpu'
 
 import { BIOMES } from '../palette'
+import { getPlatformBakeTexture } from './platformBake'
 import { applyPlatformNodes, createPlatformNodeUniforms } from './platformNodes'
 
 export type MaterialKind = 'rock' | 'accent' | 'ice' | 'grip' | 'cloud' | 'mover' | 'spinner' | 'planet' | 'pillar' | 'checkpoint' | 'checkpointBeam' | 'goal' | 'startisle'
@@ -9,6 +10,7 @@ export type MaterialKind = 'rock' | 'accent' | 'ice' | 'grip' | 'cloud' | 'mover
 export interface PlatformMaterialSet {
     get(kind: MaterialKind, variant?: 'apex'): THREE.Material
     update(dt: number, elapsed: number): void
+    prepare(renderer: WebGPURenderer): Promise<void>
     dispose(): void
 }
 
@@ -92,13 +94,15 @@ function makeKindMaterial(
     return material
 }
 
-export function createPlatformMaterials(): PlatformMaterialSet {
+export function createPlatformMaterials({ bake = false }: { bake?: boolean } = {}): PlatformMaterialSet {
     const uniforms = createPlatformNodeUniforms()
     const materials = {} as Record<MaterialKind, MeshStandardNodeMaterial>
     for (const kind of MATERIAL_KINDS) {
         materials[kind] = makeKindMaterial(kind, uniforms)
     }
     const pillarApexMaterial = makeKindMaterial('pillar', uniforms, true)
+    let preparePromise: Promise<void> | null = null
+    let disposed = false
 
     return {
         get(kind, variant) {
@@ -108,7 +112,23 @@ export function createPlatformMaterials(): PlatformMaterialSet {
         update(_dt, elapsed) {
             uniforms.time.value = elapsed
         },
+        prepare(renderer) {
+            if (!bake) return Promise.resolve()
+            if (preparePromise) return preparePromise
+
+            preparePromise = getPlatformBakeTexture(renderer).then((bakeTexture) => {
+                if (disposed) return
+                for (const kind of MATERIAL_KINDS) {
+                    applyPlatformNodes(materials[kind], kind, uniforms, { bakeTexture })
+                    materials[kind].needsUpdate = true
+                }
+                applyPlatformNodes(pillarApexMaterial, 'pillar', uniforms, { pillarApex: true, bakeTexture })
+                pillarApexMaterial.needsUpdate = true
+            })
+            return preparePromise
+        },
         dispose() {
+            disposed = true
             for (const kind of MATERIAL_KINDS) materials[kind].dispose()
             pillarApexMaterial.dispose()
         },

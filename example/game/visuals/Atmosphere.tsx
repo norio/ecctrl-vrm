@@ -335,12 +335,12 @@ export function Atmosphere(): React.ReactNode {
             <directionalLight
                 ref={lightRef}
                 castShadow
-                shadow-mapSize-width={2048}
-                shadow-mapSize-height={2048}
-                shadow-camera-left={-38}
-                shadow-camera-right={38}
-                shadow-camera-top={38}
-                shadow-camera-bottom={-38}
+                shadow-mapSize-width={4096}
+                shadow-mapSize-height={4096}
+                shadow-camera-left={-28}
+                shadow-camera-right={28}
+                shadow-camera-top={28}
+                shadow-camera-bottom={-28}
                 shadow-camera-near={1}
                 shadow-camera-far={180}
                 shadow-bias={-0.001}

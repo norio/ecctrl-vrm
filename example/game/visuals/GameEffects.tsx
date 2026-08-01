@@ -92,7 +92,7 @@ export function GameEffects(): React.ReactNode {
     const { bloom, smaa, gtao, aoScale } = useControls('Quality', {
         bloom: true,
         smaa: true,
-        gtao: true,
+        gtao: false,
         aoScale: { value: 0.5, min: 0.25, max: 1, step: 0.05 },
     })
     const pipeline = useMemo(
